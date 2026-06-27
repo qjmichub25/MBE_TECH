@@ -1,178 +1,113 @@
+HTML
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MBE - Scanner Terrain</title>
-    <!-- Import de la lib de scan open-source (via CDN gratuit) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <title>Mon Labo d'Essais - GitHub Pages</title>
     <style>
-        :root {
-            --primary: #2d3748;
-            --success: #38a169;
-            --danger: #e53e3e;
-            --bg: #f7fafc;
-        }
+        /* Styles pour rendre la page jolie et adaptée aux téléphones */
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f9;
+            color: #333;
             margin: 0;
-            padding: 15px;
-            background-color: var(--bg);
-            color: var(--primary);
+            padding: 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            box-sizing: border-box;
         }
-        h2 { margin-bottom: 5px; text-align: center; }
-        .container { width: 100%; max-width: 500px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        
-        /* Zone de scan camera */
-        #reader { width: 100%; border-radius: 8px; overflow: hidden; border: none !important; background: #000; }
-        
-        /* Boutons de sélection du mouvement */
-        .mouvement-selector { display: flex; gap: 15px; margin: 20px 0; }
-        .btn-radio {
-            flex: 1; padding: 15px; text-align: center; border: 2px solid #e2e8f0;
-            border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.2s;
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            text-align: center;
         }
-        input[type="radio"] { display: none; }
-        input[type="radio"]:checked + .btn-radio.type-entree { background: #f0fff4; border-color: var(--success); color: var(--success); }
-        input[type="radio"]:checked + .btn-radio.type-sortie { background: #fff5f5; border-color: var(--danger); color: var(--danger); }
-        
-        /* Infos de scan et statut */
-        .result-box { background: #edf2f7; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 14px; word-break: break-all; margin-top: 10px; text-align: center; min-height: 20px; }
-        #btn-submit { width: 100%; background: var(--primary); color: white; border: none; padding: 15px; border-radius: 8px; font-size: 16px; font-weight: bold; margin-top: 15px; cursor: pointer; display: none; }
-        #btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
-        .status-msg { margin-top: 10px; text-align: center; font-weight: bold; }
+
+        h1 {
+            font-size: 24px;
+            color: #1e293b;
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .menu-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* Style des boutons */
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+
+        /* Couleurs différentes pour chaque essai */
+        .btn-essai1 {
+            background-color: #0284c7;
+            color: white;
+        }
+        .btn-essai1:hover { background-color: #0369a1; }
+
+        .btn-essai2 {
+            background-color: #10b981;
+            color: white;
+        }
+        .btn-essai2:hover { background-color: #047857; }
+
+        .btn-essai3 {
+            background-color: #6366f1;
+            color: white;
+        }
+        .btn-essai3:hover { background-color: #4338ca; }
+
+        .footer {
+            margin-top: 30px;
+            font-size: 11px;
+            color: #94a3b8;
+        }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>MBE Logistique</h2>
-    <p style="text-align:center; color:#718096; margin-top:0;">Scan Entrées / Sorties</p>
+    <div class="container">
+        <h1>🧪 Mon Laboratoire d'Essais</h1>
+        <p>Sélectionnez l'application ou le test à lancer :</p>
 
-    <!-- Étape 1 : Le Type de mouvement (Gros boutons tactiles) -->
-    <div class="mouvement-selector">
-        <label style="flex: 1;">
-            <input type="radio" name="mouvement" value="Entrée" checked onchange="updateSubmitButtonVisibility()">
-            <div class="btn-radio type-entree">📥 ENTRÉE</div>
-        </label>
-        <label style="flex: 1;">
-            <input type="radio" name="mouvement" value="Sortie" onchange="updateSubmitButtonVisibility()">
-            <div class="btn-radio type-sortie">📤 SORTIE</div>
-        </label>
+        <div class="menu-grid">
+            <a href="mbe.html" class="btn btn-essai1">🚀 Essai 1 : MBE Scan</a>
+
+            <a href="todo.html" class="btn btn-essai2">📋 Essai 2 : Todo Dashboard</a>
+
+            <a href="essai3.html" class="btn btn-essai3">🛠️ Essai 3 : Futur Test</a>
+        </div>
+
+        <div class="footer">
+            Hébergé gratuitement sur GitHub Pages
+        </div>
     </div>
 
-    <!-- Étape 2 : Le Scanner Caméra -->
-    <div id="reader"></div>
-
-    <!-- Étape 3 : Résultat visuel -->
-    <div id="scan-result" class="result-box">En attente de scan...</div>
-    
-    <button id="btn-submit" onclick="sendToAirtable()">Valider le mouvement</button>
-    <div id="status" class="status-msg"></div>
-</div>
-
-<script>
-    // --- CONFIGURATION AIRTABLE ---
-    const AIRTABLE_PAT = 'patZX82faMEPy3kUD.2ebf998091b0c4dd5e15e36cb36b74f58805bbaca2020eebc03cb95fc73cdf01'; // Jeton d'accès personnel (Bearer token)
-    const BASE_ID = 'app6vRq0Yd8eYcbam';           // ID de la base MBE
-    const TABLE_NAME = 'Entree_Sortie';        // Nom exact de la table d'atterrissage
-    
-    let scannedCode = "";
-    let html5QrcodeScanner = null;
-
-    // Lancement automatique du scanner au chargement de la page
-    window.addEventListener('DOMContentLoaded', () => {
-        html5QrcodeScanner = new Html5Qrcode("reader");
-        startScanning();
-    });
-
-    function startScanning() {
-        const config = { fps: 10, qrbox: { width: 250, height: 150 } }; // Rectangle de visée adapté aux codes-barres allongés
-        
-        html5QrcodeScanner.start(
-            { facingMode: "environment" }, // Utilise la caméra arrière par défaut
-            config,
-            onScanSuccess
-        ).catch(err => {
-            document.getElementById('status').innerText = "Erreur caméra : " + err;
-            document.getElementById('status').style.color = "var(--danger)";
-        });
-    }
-
-    function onScanSuccess(decodedText, decodedResult) {
-        // Optionnel : Un petit bip ou vibration ici si vous voulez du feedback physique sur le tel
-        if(navigator.vibrate) navigator.vibrate(100);
-
-        scannedCode = decodedText;
-        document.getElementById('scan-result').innerText = "Code détecté : " + decodedText;
-        document.getElementById('scan-result').style.background = "#e6fffa";
-        
-        updateSubmitButtonVisibility();
-    }
-
-    function updateSubmitButtonVisibility() {
-        if (scannedCode) {
-            document.getElementById('btn-submit').style.display = "block";
-        }
-    }
-
-    async function sendToAirtable() {
-        const typeMouvement = document.querySelector('input[name="mouvement"]:checked').value;
-        const submitBtn = document.getElementById('btn-submit');
-        const statusDiv = document.getElementById('status');
-
-        if (!scannedCode) return;
-
-        submitBtn.disabled = true;
-        statusDiv.innerText = "Transmission à Airtable...";
-        statusDiv.style.color = "var(--primary)";
-
-        const url = `https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`;
-        
-        // Payload calqué sur vos besoins : on écrit le code dans le champ temporaire
-        const data = {
-            fields: {
-                "Scan temporaire": scannedCode,
-                "Type de mouvement": typeMouvement // Ajustez le nom de cette colonne si nécessaire
-            }
-        };
-
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${AIRTABLE_PAT}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(data)
-            });
-
-            if (response.ok) {
-                statusDiv.innerText = "✅ Enregistré avec succès !";
-                statusDiv.style.color = "var(--success)";
-                
-                // Reset du formulaire pour le scan suivant après 1.5 seconde
-                setTimeout(() => {
-                    scannedCode = "";
-                    document.getElementById('scan-result').innerText = "En attente de scan...";
-                    document.getElementById('scan-result').style.background = "#edf2f7";
-                    submitBtn.style.display = "none";
-                    submitBtn.disabled = false;
-                    statusDiv.innerText = "";
-                }, 1500);
-            } else {
-                const errData = await response.json();
-                throw new Error(errData.error.message);
-            }
-        } catch (error) {
-            statusDiv.innerText = "❌ Erreur : " + error.message;
-            statusDiv.style.color = "var(--danger)";
-            submitBtn.disabled = false;
-        }
-    }
-</script>
 </body>
 </html>
