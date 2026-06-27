@@ -159,7 +159,7 @@
             setTimeout(() => { isSaved = false; }, 4000);
         }
 
-        async function sendToAirtable(scannedValue) {
+       async function sendToAirtable(scannedValue) {
             statusEl.className = "status-badge status-waiting";
             statusEl.innerText = "⏳ Envoi vers Airtable...";
 
@@ -172,15 +172,15 @@
                     },
                     body: JSON.stringify({
                         fields: {
-                            "Code": scannedValue, 
-                            "Date": new Date().toISOString().split('T')[0]
+                            "Scan temporaire": scannedValue // On cible la bonne colonne de image_98e222.png
+                            // On retire la Date pour laisser Airtable ou votre système gérer l'heure tout seul si besoin
                         }
                     })
                 });
 
                 if (response.ok) {
                     statusEl.className = "status-badge status-success";
-                    statusEl.innerText = "✅ Synchronisé avec Airtable !";
+                    statusEl.innerText = "✅ Synchronisé dans Entree_Sortie !";
                 } else {
                     throw new Error();
                 }
