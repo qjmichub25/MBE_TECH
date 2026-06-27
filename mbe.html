@@ -121,11 +121,10 @@
         let barcodeDetector;
 
         // 1. Démarrer la caméra et le détecteur
-        async function startScanner() {
+            async function startScanner() {
             try {
-                // Initialisation du détecteur universel (Code-barres + QR Codes)
-                window.BarcodeDetector = polyfill.BarcodeDetector;
-                barcodeDetector = new BarcodeDetector();
+                // Correction du chargement de la bibliothèque
+                barcodeDetector = new BarcodeDetectorPolyfill.BarcodeDetector();
 
                 // Demande d'accès à la caméra arrière du téléphone
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -146,7 +145,6 @@
                 statusEl.innerText = "Erreur caméra : " + err.message;
             }
         }
-
         // 2. Analyser l'image de la caméra en boucle
         async function scanFrame() {
             if (video.readyState === video.HAVE_CURRENT_DATA) {
