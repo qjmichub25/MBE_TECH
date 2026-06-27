@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner MBE Scan</title>
-    <!-- Inclusion directe de la bibliothèque de scan ultra-fiable -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <!-- Bibliothèque spéciale QR Codes et DataMatrix -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -45,15 +45,8 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             background: #000;
         }
-        /* Style crucial pour que Quagga affiche correctement la vidéo */
-        #interactive.viewport video, #interactive.viewport canvas {
+        #reader {
             width: 100%;
-            display: block;
-        }
-        #interactive.viewport canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
         }
         .scan-laser {
             position: absolute;
@@ -65,6 +58,7 @@
             box-shadow: 0 0 8px red;
             animation: laserMove 2s infinite ease-in-out;
             z-index: 10;
+            pointer-events: none;
         }
         @keyframes laserMove {
             0% { top: 20%; }
@@ -99,9 +93,8 @@
         <div style="width: 42px;"></div>
     </div>
 
-    <!-- Conteneur ciblé par la bibliothèque Quagga -->
     <div id="camera-container">
-        <div id="interactive" class="viewport"></div>
+        <div id="reader"></div>
         <div class="scan-laser"></div>
     </div>
 
@@ -113,71 +106,59 @@
 
     <script>
         // ==========================================
-        // CONFIGURATION AIRTABLE
+        // CONFIGURATION AIRTABLE (À piocher dans le bloc-notes !)
         // ==========================================
         const AIRTABLE_TOKEN = "patZX82faMEPy3kUD"; 
         const BASE_ID = "app6vRq0Yd8eYcbam";       
-        const TABLE_NAME = "MbeScan";               
+        const TABLE_NAME = "MbeScan";          
         // ==========================================
 
         const codeEl = document.getElementById('scanned-code');
         const statusEl = document.getElementById('sync-status');
         let isSaved = false;
+        let html5QrcodeScanner;
 
-        // 1. Initialiser et démarrer le scanner Quagga
-        function startQuagga() {
-            Quagga.init({
-                inputStream: {
-                    name: "Live",
-                    type: "LiveStream",
-                    target: document.querySelector('#interactive'), // Où afficher la vidéo
-                    constraints: {
-                        facingMode: "environment" // Caméra arrière
-                    },
-                },
-                decoder: {
-                    // Analyse les formats les plus courants (Code 128, EAN, Code 39...)
-                    readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader"]
-                }
-            }, function(err) {
-                if (err) {
-                    statusEl.className = "status-badge status-error";
-                    statusEl.innerText = "Erreur : " + err.name;
-                    return;
-                }
-                statusEl.className = "status-badge status-waiting";
-                statusEl.innerText = "Prêt à scanner !";
-                Quagga.start();
-            });
-
-            // 2. Écouteur de détection de code-barres
-            Quagga.onDetected(function(data) {
-                if (data.codeResult && data.codeResult.code && !isSaved) {
-                    const codeValue = data.codeResult.code;
-                    
-                    // Éviter les faux positifs à la volée (optionnel mais recommandé)
-                    if (codeValue.length > 3) {
-                        processCode(codeValue);
+        function startScanner() {
+            // Configuration du scanner pour lire TOUS les formats (y compris DataMatrix et QR)
+            html5QrcodeScanner = new Html5Qrcode("reader");
+            
+            html5QrcodeScanner.start(
+                { facingMode: "environment" }, // Caméra arrière
+                {
+                    fps: 10,    // 10 images par seconde (léger pour le processeur)
+                    qrbox: function(width, height) {
+                        return { width: width * 0.7, height: height * 0.7 }; // Zone de focus
                     }
-                }
+                },
+                // Fonction déclenchée quand un code est trouvé
+                (decodedText) => {
+                    if (!isSaved) {
+                        processCode(decodedText);
+                    }
+                },
+                // Fonction de suivi des erreurs de lecture (on l'ignore pour ne pas polluer la console)
+                (errorMessage) => {}
+            ).then(() => {
+                statusEl.className = "status-badge status-waiting";
+                statusEl.innerText = "Prêt à scanner votre DataMatrix !";
+            }).catch((err) => {
+                statusEl.className = "status-badge status-error";
+                statusEl.innerText = "Erreur d'initialisation.";
             });
         }
 
-        // Action lors du scan réussi
         async function processCode(codeValue) {
             isSaved = true;
             codeEl.innerText = codeValue;
             
-            // Émettre un petit bip sonore si le téléphone le permet
             try { navigator.vibrate(100); } catch(e) {}
 
             await sendToAirtable(codeValue);
             
-            // Pause de 4 secondes avant de pouvoir ré-scanner
+            // Attendre 4 secondes avant de réactiver le scanner
             setTimeout(() => { isSaved = false; }, 4000);
         }
 
-        // 3. Envoi des données vers Airtable
         async function sendToAirtable(scannedValue) {
             statusEl.className = "status-badge status-waiting";
             statusEl.innerText = "⏳ Envoi vers Airtable...";
@@ -209,8 +190,8 @@
             }
         }
 
-        // Lancement au chargement de la page
-        startQuagga();
+        // Lancement direct
+        startScanner();
     </script>
 </body>
 </html>
