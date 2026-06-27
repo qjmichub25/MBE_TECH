@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Essai 1 : MBE Scan</title>
-    <!-- Chargement de la bibliothèque de scan (Barcode Detector Polyfill) -->
-    <script src="https://unpkg.com/@undecaf/zbar-wasm@0.9.15/dist/index.js"></script>
-    <script src="https://unpkg.com/@undecaf/barcode-detector-polyfill@0.3.21/dist/index.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -90,7 +87,7 @@
     <div class="header">
         <a href="index.html" class="back-btn">⬅ Menu</a>
         <h2>Scanner MBE Scan</h2>
-        <div style="width: 42px;"></div> <!-- Équilibreur visuel -->
+        <div style="width: 42px;"></div>
     </div>
 
     <div id="camera-container">
@@ -106,11 +103,11 @@
 
     <script>
         // ==========================================
-        // CONFIGURATION AIRTABLE (MÊME NOM DE VARIABLE)
+        // CONFIGURATION AIRTABLE
         // ==========================================
-        const AIRTABLE_TOKEN = "patZX82faMEPy3kUD"; // Remettez votre clé pat...
-        const BASE_ID = "app6vRq0Yd8eYcbam";       // Votre ID de base corrigé
-        const TABLE_NAME = "MbeScan";             // Mettez le nom exact de votre onglet de scan
+        const AIRTABLE_TOKEN = "VOTRE_TOKEN_ICI"; 
+        const BASE_ID = "VOTRE_ID_DE_BASE";       
+        const TABLE_NAME = "MbeScan";             
         // ==========================================
 
         const video = document.getElementById('webcam');
@@ -118,19 +115,23 @@
         const statusEl = document.getElementById('sync-status');
         
         let isSaved = false; 
-        let barcodeDetector;
+        let barcodeDetector = null;
 
-        // 1. Démarrer la caméra et le détecteur
-            async function startScanner() {
+        // 1. Démarrer la caméra et initialiser le détecteur natif du smartphone
+        async function startScanner() {
             try {
-                // Correction du chargement de la bibliothèque
-                barcodeDetector = new BarcodeDetectorPolyfill.BarcodeDetector();
+                // Utilisation du détecteur natif s'il existe dans le smartphone
+                if ('BarcodeDetector' in window) {
+                    barcodeDetector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code'] });
+                } else {
+                    console.log("Le mode natif strict n'est pas supporté, essai en mode d'analyse standard.");
+                }
 
-                // Demande d'accès à la caméra arrière du téléphone
+                // Demande d'accès à la caméra arrière
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { exact: "environment" } }
                 }).catch(() => {
-                    // Si pas de caméra arrière (ex: sur PC), on prend la caméra par défaut
+                    // Si pas de caméra arrière détectée, on prend la caméra par défaut
                     return navigator.mediaDevices.getUserMedia({ video: true });
                 });
 
@@ -138,41 +139,42 @@
                 statusEl.className = "status-badge status-waiting";
                 statusEl.innerText = "Prêt à scanner !";
                 
-                // Lancement de la boucle de détection
+                // Lancer la boucle d'analyse de l'image
                 setTimeout(scanFrame, 500);
             } catch (err) {
                 statusEl.className = "status-badge status-error";
                 statusEl.innerText = "Erreur caméra : " + err.message;
             }
         }
-        // 2. Analyser l'image de la caméra en boucle
+
+        // 2. Analyser l'image de la vidéo
         async function scanFrame() {
             if (video.readyState === video.HAVE_CURRENT_DATA) {
                 try {
-                    const barcodes = await barcodeDetector.detect(video);
-                    if (barcodes.length > 0 && !isSaved) {
-                        // Un code a été trouvé !
-                        const codeValue = barcodes[0].rawValue;
-                        codeEl.innerText = codeValue;
-                        
-                        // Bloquer temporairement pour éviter les doublons
-                        isSaved = true; 
-                        
-                        // Envoyer à Airtable
-                        await sendToAirtable(codeValue);
-                        
-                        // Attendre 3 secondes avant de réautoriser un nouveau scan
-                        setTimeout(() => { isSaved = false; }, 3000);
+                    // Si le détecteur natif est opérationnel
+                    if (barcodeDetector) {
+                        const barcodes = await barcodeDetector.detect(video);
+                        if (barcodes.length > 0 && !isSaved) {
+                            processCode(barcodes[0].rawValue);
+                        }
                     }
                 } catch (e) {
-                    console.error("Erreur de détection :", e);
+                    console.error(e);
                 }
             }
-            // Relancer l'analyse immédiatement
             requestAnimationFrame(scanFrame);
         }
 
-        // 3. Envoyer la donnée lue vers Airtable
+        // Action lors de la détection réussie
+        async function processCode(codeValue) {
+            codeEl.innerText = codeValue;
+            isSaved = true; 
+            await sendToAirtable(codeValue);
+            // Pause de 3 secondes pour ne pas scanner 15 fois d'affilée le même code
+            setTimeout(() => { isSaved = false; }, 3000);
+        }
+
+        // 3. Envoi des données vers Airtable
         async function sendToAirtable(scannedValue) {
             statusEl.className = "status-badge status-waiting";
             statusEl.innerText = "⏳ Envoi vers Airtable...";
@@ -186,10 +188,8 @@
                     },
                     body: JSON.stringify({
                         fields: {
-                            // On suppose que votre colonne principale s'appelle "Code" ou "Barcode"
-                            // Modifiez "Code" ci-dessous si le nom de votre colonne est différent
                             "Code": scannedValue, 
-                            "Date": new Date().toISOString().split('T')[0] // Optionnel : ajoute la date du jour
+                            "Date": new Date().toISOString().split('T')[0]
                         }
                     })
                 });
@@ -206,7 +206,7 @@
             }
         }
 
-        // Lancer au chargement
+        // Démarrage automatique
         startScanner();
     </script>
 </body>
