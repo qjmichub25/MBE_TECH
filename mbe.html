@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Essai 1 : MBE Scan</title>
+    <title>Scanner MBE Scan</title>
+    <!-- Inclusion directe de la bibliothèque de scan ultra-fiable -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -43,9 +45,15 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             background: #000;
         }
-        video {
+        /* Style crucial pour que Quagga affiche correctement la vidéo */
+        #interactive.viewport video, #interactive.viewport canvas {
             width: 100%;
             display: block;
+        }
+        #interactive.viewport canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
         }
         .scan-laser {
             position: absolute;
@@ -56,6 +64,7 @@
             background: red;
             box-shadow: 0 0 8px red;
             animation: laserMove 2s infinite ease-in-out;
+            z-index: 10;
         }
         @keyframes laserMove {
             0% { top: 20%; }
@@ -90,15 +99,16 @@
         <div style="width: 42px;"></div>
     </div>
 
+    <!-- Conteneur ciblé par la bibliothèque Quagga -->
     <div id="camera-container">
-        <video id="webcam" autoplay playsinline></video>
+        <div id="interactive" class="viewport"></div>
         <div class="scan-laser"></div>
     </div>
 
     <div id="result-box">
         <div><strong>Dernier code détecté :</strong></div>
         <h3 id="scanned-code" style="margin: 10px 0; color: #1e293b;">En attente de lecture...</h3>
-        <div id="sync-status" class="status-badge status-waiting">Caméra en cours de démarrage...</div>
+        <div id="sync-status" class="status-badge status-waiting">Initialisation...</div>
     </div>
 
     <script>
@@ -107,71 +117,64 @@
         // ==========================================
         const AIRTABLE_TOKEN = "patZX82faMEPy3kUD"; 
         const BASE_ID = "app6vRq0Yd8eYcbam";       
-        const TABLE_NAME = "MbeScan";             
+        const TABLE_NAME = "MbeScan";               
         // ==========================================
 
-        const video = document.getElementById('webcam');
         const codeEl = document.getElementById('scanned-code');
         const statusEl = document.getElementById('sync-status');
-        
-        let isSaved = false; 
-        let barcodeDetector = null;
+        let isSaved = false;
 
-        // 1. Démarrer la caméra et initialiser le détecteur natif du smartphone
-        async function startScanner() {
-            try {
-                // Utilisation du détecteur natif s'il existe dans le smartphone
-                if ('BarcodeDetector' in window) {
-                    barcodeDetector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code'] });
-                } else {
-                    console.log("Le mode natif strict n'est pas supporté, essai en mode d'analyse standard.");
+        // 1. Initialiser et démarrer le scanner Quagga
+        function startQuagga() {
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: document.querySelector('#interactive'), // Où afficher la vidéo
+                    constraints: {
+                        facingMode: "environment" // Caméra arrière
+                    },
+                },
+                decoder: {
+                    // Analyse les formats les plus courants (Code 128, EAN, Code 39...)
+                    readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader"]
                 }
-
-                // Demande d'accès à la caméra arrière
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" } }
-                }).catch(() => {
-                    // Si pas de caméra arrière détectée, on prend la caméra par défaut
-                    return navigator.mediaDevices.getUserMedia({ video: true });
-                });
-
-                video.srcObject = stream;
+            }, function(err) {
+                if (err) {
+                    statusEl.className = "status-badge status-error";
+                    statusEl.innerText = "Erreur : " + err.name;
+                    return;
+                }
                 statusEl.className = "status-badge status-waiting";
                 statusEl.innerText = "Prêt à scanner !";
-                
-                // Lancer la boucle d'analyse de l'image
-                setTimeout(scanFrame, 500);
-            } catch (err) {
-                statusEl.className = "status-badge status-error";
-                statusEl.innerText = "Erreur caméra : " + err.message;
-            }
-        }
+                Quagga.start();
+            });
 
-        // 2. Analyser l'image de la vidéo
-        async function scanFrame() {
-            if (video.readyState === video.HAVE_CURRENT_DATA) {
-                try {
-                    // Si le détecteur natif est opérationnel
-                    if (barcodeDetector) {
-                        const barcodes = await barcodeDetector.detect(video);
-                        if (barcodes.length > 0 && !isSaved) {
-                            processCode(barcodes[0].rawValue);
-                        }
+            // 2. Écouteur de détection de code-barres
+            Quagga.onDetected(function(data) {
+                if (data.codeResult && data.codeResult.code && !isSaved) {
+                    const codeValue = data.codeResult.code;
+                    
+                    // Éviter les faux positifs à la volée (optionnel mais recommandé)
+                    if (codeValue.length > 3) {
+                        processCode(codeValue);
                     }
-                } catch (e) {
-                    console.error(e);
                 }
-            }
-            requestAnimationFrame(scanFrame);
+            });
         }
 
-        // Action lors de la détection réussie
+        // Action lors du scan réussi
         async function processCode(codeValue) {
+            isSaved = true;
             codeEl.innerText = codeValue;
-            isSaved = true; 
+            
+            // Émettre un petit bip sonore si le téléphone le permet
+            try { navigator.vibrate(100); } catch(e) {}
+
             await sendToAirtable(codeValue);
-            // Pause de 3 secondes pour ne pas scanner 15 fois d'affilée le même code
-            setTimeout(() => { isSaved = false; }, 3000);
+            
+            // Pause de 4 secondes avant de pouvoir ré-scanner
+            setTimeout(() => { isSaved = false; }, 4000);
         }
 
         // 3. Envoi des données vers Airtable
@@ -206,8 +209,8 @@
             }
         }
 
-        // Démarrage automatique
-        startScanner();
+        // Lancement au chargement de la page
+        startQuagga();
     </script>
 </body>
 </html>
