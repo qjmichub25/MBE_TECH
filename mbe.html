@@ -172,8 +172,7 @@
                     },
                     body: JSON.stringify({
                         fields: {
-                            "Scan temporaire": scannedValue // On cible la bonne colonne de image_98e222.png
-                            // On retire la Date pour laisser Airtable ou votre système gérer l'heure tout seul si besoin
+                            "Scan temporaire": scannedValue
                         }
                     })
                 });
@@ -182,11 +181,15 @@
                     statusEl.className = "status-badge status-success";
                     statusEl.innerText = "✅ Synchronisé dans Entree_Sortie !";
                 } else {
-                    throw new Error();
+                    // SI ERREUR : On récupère le vrai motif renvoyé par Airtable
+                    const errorData = await response.json().catch(() => ({}));
+                    const errorMsg = errorData.error ? (errorData.error.message || errorData.error) : "Erreur " + response.status;
+                    throw new Error(errorMsg);
                 }
             } catch (error) {
                 statusEl.className = "status-badge status-error";
-                statusEl.innerText = "❌ Échec de la synchronisation";
+                // On affiche la vraie cause sur le badge rouge
+                statusEl.innerText = "❌ " + error.message;
             }
         }
 
