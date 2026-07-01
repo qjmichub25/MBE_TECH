@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner MBE Scan</title>
-    <!-- Bibliothèque pour QR Codes et DataMatrix -->
+    <!-- Bibliothèque spéciale QR Codes et DataMatrix -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <style>
         body {
@@ -110,7 +110,7 @@
         // ==========================================
         const AIRTABLE_TOKEN = "patZX82faMEPy3kUD"; 
         const BASE_ID = "app6vRq0Yd8eYcbam";       
-        const TABLE_NAME = "MbeScan";         
+        const TABLE_NAME = "MbeScan";                     
         // ==========================================
 
         const codeEl = document.getElementById('scanned-code');
@@ -119,25 +119,28 @@
         let html5QrcodeScanner;
 
         function startScanner() {
+            // Configuration du scanner pour lire TOUS les formats (y compris DataMatrix et QR)
             html5QrcodeScanner = new Html5Qrcode("reader");
             
             html5QrcodeScanner.start(
-                { facingMode: "environment" }, 
+                { facingMode: "environment" }, // Caméra arrière
                 {
-                    fps: 10,    
+                    fps: 10,    // 10 images par seconde (léger pour le processeur)
                     qrbox: function(width, height) {
-                        return { width: width * 0.7, height: height * 0.7 }; 
+                        return { width: width * 0.7, height: height * 0.7 }; // Zone de focus
                     }
                 },
+                // Fonction déclenchée quand un code est trouvé
                 (decodedText) => {
                     if (!isSaved) {
                         processCode(decodedText);
                     }
                 },
+                // Fonction de suivi des erreurs de lecture (on l'ignore pour ne pas polluer la console)
                 (errorMessage) => {}
             ).then(() => {
                 statusEl.className = "status-badge status-waiting";
-                statusEl.innerText = "Prêt à scanner !";
+                statusEl.innerText = "Prêt à scanner votre DataMatrix !";
             }).catch((err) => {
                 statusEl.className = "status-badge status-error";
                 statusEl.innerText = "Erreur d'initialisation.";
@@ -152,6 +155,7 @@
 
             await sendToAirtable(codeValue);
             
+            // Attendre 4 secondes avant de réactiver le scanner
             setTimeout(() => { isSaved = false; }, 4000);
         }
 
@@ -160,35 +164,33 @@
             statusEl.innerText = "⏳ Envoi vers Airtable...";
 
             try {
-                const response = await fetch(`https://api.api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`, {
+                const response = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`, {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${AIRTABLE_TOKEN}`,
+                        Authorization: `Bearer ${AIRTABLE_TOKEN}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
                         fields: {
-                            "Scan temporaire": scannedValue // Cible votre colonne de image_98e222.png
+                            "Code": scannedValue, 
+                            "Date": new Date().toISOString().split('T')[0]
                         }
                     })
                 });
 
                 if (response.ok) {
                     statusEl.className = "status-badge status-success";
-                    statusEl.innerText = "✅ Synchronisé dans Entree_Sortie !";
+                    statusEl.innerText = "✅ Synchronisé avec Airtable !";
                 } else {
-                    // Récupération de l'erreur exacte renvoyée par Airtable
-                    const errorData = await response.json().catch(() => ({}));
-                    const errorMsg = errorData.error ? (errorData.error.message || errorData.error) : "Erreur " + response.status;
-                    throw new Error(errorMsg);
+                    throw new Error();
                 }
             } catch (error) {
                 statusEl.className = "status-badge status-error";
-                statusEl.innerText = "❌ " + error.message; // Affiche la vraie cause en rouge
+                statusEl.innerText = "❌ Échec de la synchronisation";
             }
         }
 
-        // Lancement automatique
+        // Lancement direct
         startScanner();
     </script>
 </body>
