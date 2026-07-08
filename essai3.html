@@ -16,7 +16,7 @@
         h1 { font-size: 20px; color: var(--primary); margin: 0; }
         
         .token-bar { background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; gap: 10px; align-items: center; font-size: 13px; }
-        .token-bar input { padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; width: 450px; }
+        .token-bar input { padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; width: 320px; }
         
         .nav-tabs { display: flex; gap: 8px; margin-bottom: 15px; }
         .tab-btn { background: #e2e8f0; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; color: #475569; }
@@ -46,8 +46,8 @@
     <div id="success-zone" class="success-box"></div>
 
     <div class="token-bar">
-        <label for="airtable-token">🔑 Jeton Secret (PAT) :</label>
-        <input type="password" id="airtable-token" placeholder="Collez ici le long jeton contenant un point (.)">
+        <label for="airtable-token">🔑 Jeton (PAT) :</label>
+        <input type="password" id="airtable-token" placeholder="patxxxxxxxxxxxxxxxxx">
         <button class="btn btn-load" onclick="initAllTables()">Connexion & Charger</button>
     </div>
 
@@ -82,7 +82,6 @@
 <script>
     const AIRTABLE_BASE_ID = "appy0zsVyKZTAysme"; 
     const AT_TABLES = { Qui: "Qui", Statut: "Statut", Sacrements: "Sacrements", Evenement: "Evenement" };
-    
     let AIRTABLE_TOKEN = "";
     const tables = {};
     
@@ -107,6 +106,7 @@
             window.event.currentTarget.classList.add('active');
         }
         
+        // Correction de la casse pour cibler correctement l'objet tables
         const targetTable = tabId.replace('tab-', '').toLowerCase();
         if(tables[targetTable]) {
             tables[targetTable].redraw();
@@ -130,7 +130,7 @@
         const fieldName = cell.getField();
         let val = cell.getValue();
         
-        if (fieldName === "Status" || fieldName === "Statut" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
+        if (fieldName === "Statut" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
             if (Array.isArray(val)) {
                 val = val.map(name => Object.keys(mapping).find(key => mapping[key] === name)).filter(v => v);
             } else if (val) {
@@ -153,14 +153,14 @@
             const data = await response.json();
             return data.records.map(record => ({ airtable_id: record.id, ...record.fields }));
         } catch (err) {
-            showGlobalError(`❌ Échec de chargement [${tableName}] : ${err.message}`);
-            throw err; 
+            showGlobalError(`❌ Échec critique de chargement [Table: ${tableName}] : ${err.message}. L'application a bloqué la synchronisation.`);
+            throw err; // Bloque l'exécution globale
         }
     }
 
     async function updateAirtableRecord(tableName, rowData, fieldName, processedValue, cell) {
         const airtableId = rowData.airtable_id;
-        if (!airtableId) return alert("Sauvegarde impossible : Identifiant Airtable manquant.");
+        if (!airtableId) return alert("Impossible de sauvegarder : cette ligne n'est pas connectée à Airtable (Jeton invalide au chargement).");
 
         const body = { fields: { [fieldName]: processedValue } };
 
@@ -175,19 +175,19 @@
                 throw new Error(errData.error?.message || `Code ${response.status}`);
             }
         } catch (err) {
-            alert(`Échec de la modification : ${err.message}`);
+            alert(`Échec de sauvegarde : ${err.message}`);
             cell.restoreOldValue();
         }
     }
 
     async function createNewRecord(tableName) {
-        if(!AIRTABLE_TOKEN || AIRTABLE_TOKEN.length < 20) return alert("Veuillez d'abord vous connecter.");
-        const internalName = tableName.toLowerCase();
+        if(!AIRTABLE_TOKEN || AIRTABLE_TOKEN.length < 10) return alert("Veuillez charger l'application avec un jeton valide.");
+        const internalName = Object.keys(AT_TABLES).find(key => AT_TABLES[key] === tableName).toLowerCase();
         
         let defaultFields = {};
         if (tableName === "Qui") {
             defaultFields = { "Prenom Nom": "Nouveau Profil" };
-        } else {
+        } else if (tableName === "Statut" || tableName === "Sacrements" || tableName === "Evenement") {
             defaultFields = { "Name": "Nouvelle entrée" };
         }
         
@@ -204,12 +204,12 @@
                 tables[internalName].addRow({ airtable_id: newRecord.id, ...newRecord.fields }, true);
             }
         } catch (err) {
-            alert(`Erreur de création : ${err.message}`);
+            alert(`Erreur lors de la création de la ligne : ${err.message}`);
         }
     }
 
     async function deleteAirtableRecord(tableName, cell) {
-        if (!confirm("Supprimer définitivement cette ligne dans Airtable ?")) return;
+        if (!confirm("Supprimer définitivement cette ligne ?")) return;
         const row = cell.getRow();
         const airtableId = row.getData().airtable_id;
 
@@ -221,23 +221,25 @@
             if(!response.ok) throw new Error();
             row.delete();
         } catch (err) {
-            alert("Erreur lors de la suppression.");
+            alert("Erreur de suppression.");
         }
     }
 
     async function initAllTables() {
         const tokenInput = document.getElementById('airtable-token').value.trim();
-        
-        if(!tokenInput) return alert("Veuillez coller votre jeton.");
-        
+        if(!tokenInput || tokenInput.length < 10) {
+            return alert("Le jeton semble invalide ou tronqué. Veuillez le copier entièrement depuis Airtable.");
+        }
         AIRTABLE_TOKEN = tokenInput;
         
+        // Reset des messages
         document.getElementById('error-zone').innerHTML = "";
         document.getElementById('error-zone').style.display = "none";
         document.getElementById('success-zone').innerHTML = "";
         document.getElementById('success-zone').style.display = "none";
 
         try {
+            // Chargement séquentiel : si l'un plante, tout s'arrête proprement
             const dataStatut = await fetchAirtableData(AT_TABLES.Statut);
             const dataSacrements = await fetchAirtableData(AT_TABLES.Sacrements);
             const dataQui = await fetchAirtableData(AT_TABLES.Qui);
@@ -276,7 +278,7 @@
                     { title: "Nom Prénom", field: "Prenom Nom", editor: "input" },
                     { title: "Tel Whatsapp", field: "Tel Whatsapp", editor: "input" },
                     { 
-                        title: "Statut", field: "Status", 
+                        title: "Statut", field: "Statut", 
                         editor: "list", editorParams: { values: () => getDropdownOptions(mapStatut), clearable: true },
                         formatter: (c) => resolveAirtableIds(c.getValue(), mapStatut)
                     },
@@ -300,7 +302,7 @@
                 cellEdited: (cell) => {
                     let mapToUse = {};
                     const f = cell.getField();
-                    if (f === "Status" || f === "Statut") mapToUse = mapStatut;
+                    if (f === "Statut") mapToUse = mapStatut;
                     if (f === "Sacrements") mapToUse = mapSacrements;
                     if (f === "Evenement" || f === "Evenement 2") mapToUse = mapEvenements;
                     handleCellEdit(AT_TABLES.Qui, cell, mapToUse);
@@ -319,11 +321,11 @@
                 cellEdited: (cell) => handleCellEdit(AT_TABLES.Evenement, cell, {})
             });
 
-            document.getElementById('success-zone').innerHTML = "✨ Connexion réussie ! Tout fonctionne à nouveau parfaitement.";
+            document.getElementById('success-zone').innerHTML = "✨ Connexion établie avec succès ! Données synchronisées.";
             document.getElementById('success-zone').style.display = "block";
 
         } catch(e) {
-            // L'erreur s'affiche dynamiquement via fetchAirtableData
+            // L'erreur est déjà gérée et affichée par fetchAirtableData
         }
     }
 </script>
