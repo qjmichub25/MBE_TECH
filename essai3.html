@@ -1,29 +1,144 @@
-async function createNewRecord(tableName) {
-    if(!AIRTABLE_TOKEN) return alert("Veuillez renseigner votre Jeton d'accès.");
-    const internalName = Object.keys(AT_TABLES).find(key => AT_TABLES[key] === tableName).toLowerCase();
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Essai 3 : Version Intégrale Corrigée</title>
     
-    // On prépare un nom par défaut selon la table pour éviter les lignes complètement vides
-    let defaultFields = {};
-    if (tableName === "Qui") {
-        defaultFields = { "Prenom Nom": "Nouveau Profil" };
-    } else if (tableName === "Statu" || tableName === "Sacrements" || tableName === "Evenement") {
-        defaultFields = { "Name": "Nouvelle entrée" };
-    }
+    <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_semanticui.min.css" rel="stylesheet">
+    <script type="text/javascript" src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
     
-    try {
-        const response = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`, {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${AIRTABLE_TOKEN}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ fields: defaultFields }) // On envoie les données par défaut
-        });
-        if(!response.ok) throw new Error(`Code HTTP ${response.status}`);
-        const newRecord = await response.json();
+    <style>
+        :root { --primary: #4f46e5; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 20px; background: var(--bg); color: var(--text); }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header { margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
+        h1 { font-size: 20px; color: var(--primary); margin: 0; }
         
-        if(tables[internalName]) {
-            // On ajoute la ligne à l'écran avec les mêmes données par défaut
-            tables[internalName].addRow({ airtable_id: newRecord.id, ...defaultFields }, true); // Le "true" force la ligne à s'ajouter TOUT EN HAUT du tableau pour la voir tout de suite
-        }
-    } catch (err) {
-        alert(`Erreur lors de la création de la ligne : ${err.message}`);
+        .token-bar { background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; gap: 10px; align-items: center; font-size: 13px; }
+        .token-bar input { padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; width: 320px; }
+        
+        .nav-tabs { display: flex; gap: 8px; margin-bottom: 15px; }
+        .tab-btn { background: #e2e8f0; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; color: #475569; }
+        .tab-btn.active { background: var(--primary); color: white; }
+        .tab-content { display: none; background: var(--card); padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .tab-content.active { display: block; }
+        
+        .actions-bar { margin-bottom: 10px; display: flex; gap: 10px; }
+        .btn { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-weight: 500; font-size: 13px; }
+        .btn-add { background: #10b981; color: white; }
+        .btn-load { background: var(--primary); color: white; }
+        
+        .badge { background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-right: 4px; display: inline-block; font-weight: 500; }
+        .error-box { background: #fef2f2; border: 1px solid #fca5a5; color: #b91c1c; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>🛠️ Essai 3 : Gestionnaire Connecté & Intelligent</h1>
+        <p style="margin:4px 0 0 0; font-size:12px; color:#64748b;">Liaisons décodées en texte clair et création intelligente de nouvelles lignes.</p>
+    </header>
+
+    <div id="error-zone" class="error-box"></div>
+
+    <div class="token-bar">
+        <label for="airtable-token">🔑 Jeton (PAT) :</label>
+        <input type="password" id="airtable-token" placeholder="patxxxxxxxxxxxxxxxxx">
+        <button class="btn btn-load" onclick="initAllTables()">Connexion & Charger</button>
+    </div>
+
+    <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('tab-qui')">👥 Qui</button>
+        <button class="tab-btn" onclick="switchTab('tab-statu')">🏷️ Statu</button>
+        <button class="tab-btn" onclick="switchTab('tab-sacrements')">⛪ Sacrements</button>
+        <button class="tab-btn" onclick="switchTab('tab-evenement')">📅 Evenement</button>
+    </div>
+
+    <div id="tab-qui" class="tab-content active">
+        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Qui')">＋ Ajouter dans Qui</button></div>
+        <div id="table-qui"></div>
+    </div>
+
+    <div id="tab-statu" class="tab-content">
+        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Statu')">＋ Ajouter dans Statu</button></div>
+        <div id="table-statu"></div>
+    </div>
+
+    <div id="tab-sacrements" class="tab-content">
+        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Sacrements')">＋ Ajouter dans Sacrements</button></div>
+        <div id="table-sacrements"></div>
+    </div>
+
+    <div id="tab-evenement" class="tab-content">
+        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Evenement')">＋ Ajouter un Événement</button></div>
+        <div id="table-evenement"></div>
+    </div>
+</div>
+
+<script>
+    const AIRTABLE_BASE_ID = "appy0zsVyKZTAysme"; 
+    const AT_TABLES = { Qui: "Qui", Statu: "Statu", Sacrements: "Sacrements", Evenement: "Evenement" };
+    let AIRTABLE_TOKEN = "";
+    const tables = {};
+    
+    // Index pour convertir les ID Airtable (recXXX) en textes clairs
+    let mapStatu = {};      
+    let mapSacrements = {}; 
+    let mapEvenements = {}; 
+
+    const deleteIconFormatter = () => "<span style='color:#ef4444; cursor:pointer;'>❌</span>";
+
+    function showGlobalError(msg) {
+        const box = document.getElementById('error-zone');
+        box.innerHTML += msg + "<br>";
+        box.style.display = "block";
     }
-}
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(tabId).classList.add('active');
+        if (window.event && window.event.currentTarget) window.event.currentTarget.classList.add('active');
+        
+        const targetTable = tabId.replace('tab-', '');
+        if(tables[targetTable]) tables[targetTable].redraw();
+    }
+
+    // Convertit les ID Airtable reçus en jolis badges textuels clairs
+    function resolveAirtableIds(value, mappingField) {
+        if (!value) return "";
+        const ids = Array.isArray(value) ? value : [value];
+        return ids.map(id => {
+            if (mappingField[id]) return `<span class="badge">${mappingField[id]}</span>`;
+            return `<span class="badge" style="background:#e2e8f0; color:#475569;">${id}</span>`;
+        }).join(" ");
+    }
+
+    // Récupère la liste des choix textuels pour les listes déroulantes
+    function getDropdownOptions(mapping) {
+        return Object.values(mapping);
+    }
+
+    // Convertit le texte sélectionné par l'utilisateur en ID Airtable (recXXX) avant l'envoi
+    function handleCellEdit(tableName, cell, mapping) {
+        const fieldName = cell.getField();
+        let val = cell.getValue();
+        
+        if (fieldName === "Status" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
+            if (Array.isArray(val)) {
+                val = val.map(name => Object.keys(mapping).find(key => mapping[key] === name)).filter(v => v);
+            } else if (val) {
+                val = [Object.keys(mapping).find(key => mapping[key] === val)].filter(v => v);
+            } else {
+                val = [];
+            }
+        }
+        
+        updateAirtableRecord(tableName, cell.getRow().getData(), fieldName, val, cell);
+    }
+
+    async function fetchAirtableData(tableName) {
+        try {
+            const response
