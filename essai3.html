@@ -38,7 +38,7 @@
 
 <div class="container">
     <header>
-        <h1>🛠️ Essai 3 : Gestionnaire Connecté & Intelligent</h1>
+        <h1>🛠️ Essai 3 : Gestionnaire Connecté & Intelligent (V5.0)</h1>
         <p style="margin:4px 0 0 0; font-size:12px; color:#64748b;">Liaisons décodées en texte clair et mise à jour bidirectionnelle.</p>
     </header>
 
@@ -80,6 +80,7 @@
 </div>
 
 <script>
+    // Code JavaScript — N° V5.0
     const AIRTABLE_BASE_ID = "appy0zsVyKZTAysme"; 
     const AT_TABLES = { Qui: "Qui", Statut: "Statut", Sacrements: "Sacrements", Evenement: "Evenement" };
     let AIRTABLE_TOKEN = "";
@@ -106,7 +107,6 @@
             window.event.currentTarget.classList.add('active');
         }
         
-        // Correction de la casse pour cibler correctement l'objet tables
         const targetTable = tabId.replace('tab-', '').toLowerCase();
         if(tables[targetTable]) {
             tables[targetTable].redraw();
@@ -154,7 +154,7 @@
             return data.records.map(record => ({ airtable_id: record.id, ...record.fields }));
         } catch (err) {
             showGlobalError(`❌ Échec critique de chargement [Table: ${tableName}] : ${err.message}. L'application a bloqué la synchronisation.`);
-            throw err; // Bloque l'exécution globale
+            throw err; 
         }
     }
 
@@ -232,14 +232,12 @@
         }
         AIRTABLE_TOKEN = tokenInput;
         
-        // Reset des messages
         document.getElementById('error-zone').innerHTML = "";
         document.getElementById('error-zone').style.display = "none";
         document.getElementById('success-zone').innerHTML = "";
         document.getElementById('success-zone').style.display = "none";
 
         try {
-            // Chargement séquentiel : si l'un plante, tout s'arrête proprement
             const dataStatut = await fetchAirtableData(AT_TABLES.Statut);
             const dataSacrements = await fetchAirtableData(AT_TABLES.Sacrements);
             const dataQui = await fetchAirtableData(AT_TABLES.Qui);
@@ -325,7 +323,7 @@
             document.getElementById('success-zone').style.display = "block";
 
         } catch(e) {
-            // L'erreur est déjà gérée et affichée par fetchAirtableData
+            // L'erreur est gérée par fetchAirtableData
         }
     }
 </script>
