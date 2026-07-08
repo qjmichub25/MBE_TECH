@@ -46,14 +46,14 @@
     <div id="success-zone" class="success-box"></div>
 
     <div class="token-bar">
-        <label for="airtable-token">🔑 Vrai Jeton PAT (avec le point) :</label>
-        <input type="password" id="airtable-token" placeholder="patYfIOuo3v3kjiLg.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+        <label for="airtable-token">🔑 Jeton Secret (PAT) :</label>
+        <input type="password" id="airtable-token" placeholder="Collez ici le long jeton contenant un point (.)">
         <button class="btn btn-load" onclick="initAllTables()">Connexion & Charger</button>
     </div>
 
     <div class="nav-tabs">
         <button class="tab-btn active" onclick="switchTab('tab-qui')">👥 Qui</button>
-        <button class="tab-btn" onclick="switchTab('tab-statu')">🏷️ Statu</button>
+        <button class="tab-btn" onclick="switchTab('tab-statut')">🏷️ Statut</button>
         <button class="tab-btn" onclick="switchTab('tab-sacrements')">⛪ Sacrements</button>
         <button class="tab-btn" onclick="switchTab('tab-evenement')">📅 Evenement</button>
     </div>
@@ -63,9 +63,9 @@
         <div id="table-qui"></div>
     </div>
 
-    <div id="tab-statu" class="tab-content">
-        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Statu')">＋ Ajouter dans Statu</button></div>
-        <div id="table-statu"></div>
+    <div id="tab-statut" class="tab-content">
+        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Statut')">＋ Ajouter dans Statut</button></div>
+        <div id="table-statut"></div>
     </div>
 
     <div id="tab-sacrements" class="tab-content">
@@ -81,9 +81,7 @@
 
 <script>
     const AIRTABLE_BASE_ID = "appy0zsVyKZTAysme"; 
-    
-    // Correspondance stricte avec vos onglets Airtable visibles sur vos captures d'écran
-    const AT_TABLES = { Qui: "Qui", Statu: "Statu", Sacrements: "Sacrements", Evenement: "Evenement" };
+    const AT_TABLES = { Qui: "Qui", Statut: "Statut", Sacrements: "Sacrements", Evenement: "Evenement" };
     
     let AIRTABLE_TOKEN = "";
     const tables = {};
@@ -132,7 +130,7 @@
         const fieldName = cell.getField();
         let val = cell.getValue();
         
-        if (fieldName === "Status" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
+        if (fieldName === "Status" || fieldName === "Statut" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
             if (Array.isArray(val)) {
                 val = val.map(name => Object.keys(mapping).find(key => mapping[key] === name)).filter(v => v);
             } else if (val) {
@@ -155,14 +153,14 @@
             const data = await response.json();
             return data.records.map(record => ({ airtable_id: record.id, ...record.fields }));
         } catch (err) {
-            showGlobalError(`❌ Échec de chargement [${tableName}]. Raison : ${err.message === 'Erreur HTTP 401' ? 'Votre Jeton (PAT) n\'est pas complet ou a expiré.' : err.message}`);
+            showGlobalError(`❌ Échec de chargement [${tableName}] : ${err.message}`);
             throw err; 
         }
     }
 
     async function updateAirtableRecord(tableName, rowData, fieldName, processedValue, cell) {
         const airtableId = rowData.airtable_id;
-        if (!airtableId) return alert("Sauvegarde impossible : Identifiant de ligne Airtable introuvable.");
+        if (!airtableId) return alert("Sauvegarde impossible : Identifiant Airtable manquant.");
 
         const body = { fields: { [fieldName]: processedValue } };
 
@@ -183,13 +181,13 @@
     }
 
     async function createNewRecord(tableName) {
-        if(!AIRTABLE_TOKEN || AIRTABLE_TOKEN.length < 20) return alert("Action impossible : L'application n'est pas connectée avec un jeton valide.");
-        const internalName = Object.keys(AT_TABLES).find(key => AT_TABLES[key] === tableName).toLowerCase();
+        if(!AIRTABLE_TOKEN || AIRTABLE_TOKEN.length < 20) return alert("Veuillez d'abord vous connecter.");
+        const internalName = tableName.toLowerCase();
         
         let defaultFields = {};
         if (tableName === "Qui") {
             defaultFields = { "Prenom Nom": "Nouveau Profil" };
-        } else if (tableName === "Statu" || tableName === "Sacrements" || tableName === "Evenement") {
+        } else {
             defaultFields = { "Name": "Nouvelle entrée" };
         }
         
@@ -211,7 +209,7 @@
     }
 
     async function deleteAirtableRecord(tableName, cell) {
-        if (!confirm("Voulez-vous supprimer définitivement cette ligne dans Airtable ?")) return;
+        if (!confirm("Supprimer définitivement cette ligne dans Airtable ?")) return;
         const row = cell.getRow();
         const airtableId = row.getData().airtable_id;
 
@@ -223,17 +221,14 @@
             if(!response.ok) throw new Error();
             row.delete();
         } catch (err) {
-            alert("Erreur lors de la suppression sur les serveurs Airtable.");
+            alert("Erreur lors de la suppression.");
         }
     }
 
     async function initAllTables() {
         const tokenInput = document.getElementById('airtable-token').value.trim();
         
-        // Un vrai PAT valide fait plus de 60 caractères et possède un point séparateur
-        if(!tokenInput || !tokenInput.includes('.')) {
-            return alert("Attention : Vous avez collé l'ID du jeton au lieu du jeton lui-même !\n\nVeuillez régénérer votre jeton sur Airtable et copier le long code secret contenant un point (.).");
-        }
+        if(!tokenInput) return alert("Veuillez coller votre jeton.");
         
         AIRTABLE_TOKEN = tokenInput;
         
@@ -243,7 +238,7 @@
         document.getElementById('success-zone').style.display = "none";
 
         try {
-            const dataStatut = await fetchAirtableData(AT_TABLES.Statu);
+            const dataStatut = await fetchAirtableData(AT_TABLES.Statut);
             const dataSacrements = await fetchAirtableData(AT_TABLES.Sacrements);
             const dataQui = await fetchAirtableData(AT_TABLES.Qui);
             const dataEvenement = await fetchAirtableData(AT_TABLES.Evenement);
@@ -252,15 +247,15 @@
             mapSacrements = {}; dataSacrements.forEach(r => { if(r.airtable_id && r.Name) mapSacrements[r.airtable_id] = r.Name; });
             mapEvenements = {}; dataEvenement.forEach(r => { if(r.airtable_id && r.Name) mapEvenements[r.airtable_id] = r.Name; });
 
-            // 1. TABLE STATU
-            tables.statu = new Tabulator("#table-statu", {
+            // 1. TABLE STATUT
+            tables.statut = new Tabulator("#table-statut", {
                 data: dataStatut, layout: "fitColumns",
                 columns: [
                     { title: "Statut Name", field: "Name", editor: "input" }, 
                     { title: "Qui", field: "Qui", formatter: (c) => resolveAirtableIds(c.getValue(), {}) },
-                    { formatter: deleteIconFormatter, width: 40, hozAlign: "center", cellClick: (e, cell) => deleteAirtableRecord(AT_TABLES.Statu, cell) }
+                    { formatter: deleteIconFormatter, width: 40, hozAlign: "center", cellClick: (e, cell) => deleteAirtableRecord(AT_TABLES.Statut, cell) }
                 ],
-                cellEdited: (cell) => handleCellEdit(AT_TABLES.Statu, cell, {})
+                cellEdited: (cell) => handleCellEdit(AT_TABLES.Statut, cell, {})
             });
 
             // 2. TABLE SACREMENTS
@@ -274,7 +269,7 @@
                 cellEdited: (cell) => handleCellEdit(AT_TABLES.Sacrements, cell, {})
             });
 
-            // 3. TABLE QUI (Cible le champ "Status" en BDD comme vu sur votre Airtable)
+            // 3. TABLE QUI
             tables.qui = new Tabulator("#table-qui", {
                 data: dataQui, layout: "fitColumns",
                 columns: [
@@ -305,7 +300,7 @@
                 cellEdited: (cell) => {
                     let mapToUse = {};
                     const f = cell.getField();
-                    if (f === "Status") mapToUse = mapStatut;
+                    if (f === "Status" || f === "Statut") mapToUse = mapStatut;
                     if (f === "Sacrements") mapToUse = mapSacrements;
                     if (f === "Evenement" || f === "Evenement 2") mapToUse = mapEvenements;
                     handleCellEdit(AT_TABLES.Qui, cell, mapToUse);
@@ -324,11 +319,11 @@
                 cellEdited: (cell) => handleCellEdit(AT_TABLES.Evenement, cell, {})
             });
 
-            document.getElementById('success-zone').innerHTML = "✨ Connexion réussie ! Vos données Airtable sont maintenant éditables en temps réel.";
+            document.getElementById('success-zone').innerHTML = "✨ Connexion réussie ! Tout fonctionne à nouveau parfaitement.";
             document.getElementById('success-zone').style.display = "block";
 
         } catch(e) {
-            // L'affichage de l'échec est délégué à fetchAirtableData
+            // L'erreur s'affiche dynamiquement via fetchAirtableData
         }
     }
 </script>
