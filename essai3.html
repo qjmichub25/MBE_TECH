@@ -38,8 +38,8 @@
 
 <div class="container">
     <header>
-        <h1>🛠️ Essai 3 : Gestionnaire Connecté & Intelligent (V5.0)</h1>
-        <p style="margin:4px 0 0 0; font-size:12px; color:#64748b;">Liaisons décodées en texte clair et mise à jour bidirectionnelle.</p>
+        <h1>🛠️ Essai 3 : Gestionnaire Connecté & Intelligent (V5.1)</h1>
+        <p style="margin:4px 0 0 0; font-size:12px; color:#64748b;">Mise à jour bidirectionnelle totale sur l'ensemble des tables.</p>
     </header>
 
     <div id="error-zone" class="error-box"></div>
@@ -80,7 +80,6 @@
 </div>
 
 <script>
-    // Code JavaScript — N° V5.0
     const AIRTABLE_BASE_ID = "appy0zsVyKZTAysme"; 
     const AT_TABLES = { Qui: "Qui", Statut: "Statut", Sacrements: "Sacrements", Evenement: "Evenement" };
     let AIRTABLE_TOKEN = "";
@@ -89,6 +88,7 @@
     let mapStatut = {};      
     let mapSacrements = {}; 
     let mapEvenements = {}; 
+    let mapQui = {};
 
     const deleteIconFormatter = () => "<span style='color:#ef4444; cursor:pointer;'>❌</span>";
 
@@ -130,7 +130,8 @@
         const fieldName = cell.getField();
         let val = cell.getValue();
         
-        if (fieldName === "Statut" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
+        // Si on édite un champ de liaison (que ce soit Statut, Sacrements, Evenement OU Qui)
+        if (["Statut", "Sacrements", "Evenement", "Evenement 2", "Qui"].includes(fieldName)) {
             if (Array.isArray(val)) {
                 val = val.map(name => Object.keys(mapping).find(key => mapping[key] === name)).filter(v => v);
             } else if (val) {
@@ -146,21 +147,21 @@
 
     async function fetchAirtableData(tableName) {
         try {
-            const response = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`, {
+            const response = await fetch(`https://api.api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`, {
                 headers: { "Authorization": `Bearer ${AIRTABLE_TOKEN}`, "Content-Type": "application/json" }
             });
             if(!response.ok) throw new Error(`Erreur HTTP ${response.status}`);
             const data = await response.json();
             return data.records.map(record => ({ airtable_id: record.id, ...record.fields }));
         } catch (err) {
-            showGlobalError(`❌ Échec critique de chargement [Table: ${tableName}] : ${err.message}. L'application a bloqué la synchronisation.`);
+            showGlobalError(`❌ Échec critique de chargement [Table: ${tableName}] : ${err.message}`);
             throw err; 
         }
     }
 
     async function updateAirtableRecord(tableName, rowData, fieldName, processedValue, cell) {
         const airtableId = rowData.airtable_id;
-        if (!airtableId) return alert("Impossible de sauvegarder : cette ligne n'est pas connectée à Airtable (Jeton invalide au chargement).");
+        if (!airtableId) return alert("Impossible de sauvegarder : cette ligne n'est pas connectée.");
 
         const body = { fields: { [fieldName]: processedValue } };
 
@@ -228,7 +229,7 @@
     async function initAllTables() {
         const tokenInput = document.getElementById('airtable-token').value.trim();
         if(!tokenInput || tokenInput.length < 10) {
-            return alert("Le jeton semble invalide ou tronqué. Veuillez le copier entièrement depuis Airtable.");
+            return alert("Le jeton semble invalide.");
         }
         AIRTABLE_TOKEN = tokenInput;
         
@@ -246,27 +247,42 @@
             mapStatut = {}; dataStatut.forEach(r => { if(r.airtable_id && r.Name) mapStatut[r.airtable_id] = r.Name; });
             mapSacrements = {}; dataSacrements.forEach(r => { if(r.airtable_id && r.Name) mapSacrements[r.airtable_id] = r.Name; });
             mapEvenements = {}; dataEvenement.forEach(r => { if(r.airtable_id && r.Name) mapEvenements[r.airtable_id] = r.Name; });
+            mapQui = {}; dataQui.forEach(r => { if(r.airtable_id && r['Prenom Nom']) mapQui[r.airtable_id] = r['Prenom Nom']; });
 
-            // 1. TABLE STATUT
+            // 1. TABLE STATUT (Corrigée avec listes et éditeur)
             tables.statut = new Tabulator("#table-statut", {
                 data: dataStatut, layout: "fitColumns",
                 columns: [
                     { title: "Statut Name", field: "Name", editor: "input" }, 
-                    { title: "Qui", field: "Qui", formatter: (c) => resolveAirtableIds(c.getValue(), {}) },
+                    { 
+                        title: "Qui", field: "Qui", 
+                        editor: "list", editorParams: { values: () => getDropdownOptions(mapQui), multiselect: true, clearable: true },
+                        formatter: (c) => resolveAirtableIds(c.getValue(), mapQui) 
+                    },
                     { formatter: deleteIconFormatter, width: 40, hozAlign: "center", cellClick: (e, cell) => deleteAirtableRecord(AT_TABLES.Statut, cell) }
                 ],
-                cellEdited: (cell) => handleCellEdit(AT_TABLES.Statut, cell, {})
+                cellEdited: (cell) => {
+                    const f = cell.getField();
+                    handleCellEdit(AT_TABLES.Statut, cell, f === "Qui" ? mapQui : {});
+                }
             });
 
-            // 2. TABLE SACREMENTS
+            // 2. TABLE SACREMENTS (Corrigée avec listes et éditeur)
             tables.sacrements = new Tabulator("#table-sacrements", {
                 data: dataSacrements, layout: "fitColumns",
                 columns: [
                     { title: "Sacrement Name", field: "Name", editor: "input" }, 
-                    { title: "Qui", field: "Qui", formatter: (c) => resolveAirtableIds(c.getValue(), {}) },
+                    { 
+                        title: "Qui", field: "Qui", 
+                        editor: "list", editorParams: { values: () => getDropdownOptions(mapQui), multiselect: true, clearable: true },
+                        formatter: (c) => resolveAirtableIds(c.getValue(), mapQui) 
+                    },
                     { formatter: deleteIconFormatter, width: 40, hozAlign: "center", cellClick: (e, cell) => deleteAirtableRecord(AT_TABLES.Sacrements, cell) }
                 ],
-                cellEdited: (cell) => handleCellEdit(AT_TABLES.Sacrements, cell, {})
+                cellEdited: (cell) => {
+                    const f = cell.getField();
+                    handleCellEdit(AT_TABLES.Sacrements, cell, f === "Qui" ? mapQui : {});
+                }
             });
 
             // 3. TABLE QUI
@@ -322,9 +338,7 @@
             document.getElementById('success-zone').innerHTML = "✨ Connexion établie avec succès ! Données synchronisées.";
             document.getElementById('success-zone').style.display = "block";
 
-        } catch(e) {
-            // L'erreur est gérée par fetchAirtableData
-        }
+        } catch(e) { }
     }
 </script>
 </body>
