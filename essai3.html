@@ -38,7 +38,7 @@
 <div class="container">
     <header>
         <h1>🛠️ Essai 3 : Gestionnaire Connecté & Intelligent</h1>
-        <p style="margin:4px 0 0 0; font-size:12px; color:#64748b;">Liaisons décodées en texte clair et création intelligente de nouvelles lignes.</p>
+        <p style="margin:4px 0 0 0; font-size:12px; color:#64748b;">Liaisons décodées en texte clair et mise à jour bidirectionnelle.</p>
     </header>
 
     <div id="error-zone" class="error-box"></div>
@@ -51,7 +51,7 @@
 
     <div class="nav-tabs">
         <button class="tab-btn active" onclick="switchTab('tab-qui')">👥 Qui</button>
-        <button class="tab-btn" onclick="switchTab('tab-statu')">🏷️ Statu</button>
+        <button class="tab-btn" onclick="switchTab('tab-statut')">🏷️ Statut</button>
         <button class="tab-btn" onclick="switchTab('tab-sacrements')">⛪ Sacrements</button>
         <button class="tab-btn" onclick="switchTab('tab-evenement')">📅 Evenement</button>
     </div>
@@ -61,9 +61,9 @@
         <div id="table-qui"></div>
     </div>
 
-    <div id="tab-statu" class="tab-content">
-        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Statu')">＋ Ajouter dans Statu</button></div>
-        <div id="table-statu"></div>
+    <div id="tab-statut" class="tab-content">
+        <div class="actions-bar"><button class="btn btn-add" onclick="createNewRecord('Statut')">＋ Ajouter dans Statut</button></div>
+        <div id="table-statut"></div>
     </div>
 
     <div id="tab-sacrements" class="tab-content">
@@ -79,12 +79,11 @@
 
 <script>
     const AIRTABLE_BASE_ID = "appy0zsVyKZTAysme"; 
-    const AT_TABLES = { Qui: "Qui", Statu: "Statu", Sacrements: "Sacrements", Evenement: "Evenement" };
+    const AT_TABLES = { Qui: "Qui", Statut: "Statut", Sacrements: "Sacrements", Evenement: "Evenement" };
     let AIRTABLE_TOKEN = "";
     const tables = {};
     
-    // Index pour convertir les ID Airtable (recXXX) en textes clairs
-    let mapStatu = {};      
+    let mapStatut = {};      
     let mapSacrements = {}; 
     let mapEvenements = {}; 
 
@@ -111,7 +110,6 @@
         }
     }
 
-    // Convertit les ID Airtable reçus en jolis badges textuels clairs
     function resolveAirtableIds(value, mappingField) {
         if (!value) return "";
         const ids = Array.isArray(value) ? value : [value];
@@ -121,21 +119,20 @@
         }).join(" ");
     }
 
-    // Récupère la liste des choix textuels pour les listes déroulantes
     function getDropdownOptions(mapping) {
         return Object.values(mapping);
     }
 
-    // Convertit le texte sélectionné par l'utilisateur en ID Airtable (recXXX) avant l'envoi
     function handleCellEdit(tableName, cell, mapping) {
         const fieldName = cell.getField();
         let val = cell.getValue();
         
-        if (fieldName === "Status" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
+        if (fieldName === "Statut" || fieldName === "Sacrements" || fieldName === "Evenement" || fieldName === "Evenement 2") {
             if (Array.isArray(val)) {
                 val = val.map(name => Object.keys(mapping).find(key => mapping[key] === name)).filter(v => v);
             } else if (val) {
-                val = [Object.keys(mapping).find(key => mapping[key] === val)].filter(v => v);
+                const foundId = Object.keys(mapping).find(key => mapping[key] === val);
+                val = foundId ? [foundId] : [];
             } else {
                 val = [];
             }
@@ -160,6 +157,8 @@
 
     async function updateAirtableRecord(tableName, rowData, fieldName, processedValue, cell) {
         const airtableId = rowData.airtable_id;
+        if (!airtableId) return alert("Impossible de sauvegarder : ID Airtable manquant.");
+
         const body = { fields: { [fieldName]: processedValue } };
 
         try {
@@ -168,22 +167,24 @@
                 headers: { "Authorization": `Bearer ${AIRTABLE_TOKEN}`, "Content-Type": "application/json" },
                 body: JSON.stringify(body)
             });
-            if(!response.ok) throw new Error(`Code ${response.status}`);
+            if(!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error?.message || `Code ${response.status}`);
+            }
         } catch (err) {
             alert(`Échec de sauvegarde : ${err.message}`);
             cell.restoreOldValue();
         }
     }
 
-    // Fonction de création améliorée : pré-remplit un texte et insère la ligne TOUT EN HAUT
     async function createNewRecord(tableName) {
-        if(!AIRTABLE_TOKEN) return alert("Veuillez renseigner votre Jeton d'accès.");
+        if(!AIRTABLE_TOKEN || AIRTABLE_TOKEN.length < 10) return alert("Veuillez charger l'application avec un jeton valide.");
         const internalName = Object.keys(AT_TABLES).find(key => AT_TABLES[key] === tableName).toLowerCase();
         
         let defaultFields = {};
         if (tableName === "Qui") {
             defaultFields = { "Prenom Nom": "Nouveau Profil" };
-        } else if (tableName === "Statu" || tableName === "Sacrements" || tableName === "Evenement") {
+        } else if (tableName === "Statut" || tableName === "Sacrements" || tableName === "Evenement") {
             defaultFields = { "Name": "Nouvelle entrée" };
         }
         
@@ -197,7 +198,7 @@
             const newRecord = await response.json();
             
             if(tables[internalName]) {
-                tables[internalName].addRow({ airtable_id: newRecord.id, ...defaultFields }, true);
+                tables[internalName].addRow({ airtable_id: newRecord.id, ...newRecord.fields }, true);
             }
         } catch (err) {
             alert(`Erreur lors de la création de la ligne : ${err.message}`);
@@ -222,32 +223,34 @@
     }
 
     async function initAllTables() {
-        AIRTABLE_TOKEN = document.getElementById('airtable-token').value;
-        if(!AIRTABLE_TOKEN) return alert("Veuillez entrer votre Jeton.");
+        const tokenInput = document.getElementById('airtable-token').value.trim();
+        if(!tokenInput || tokenInput.length < 10) {
+            return alert("Le jeton semble invalide. Veuillez le recoller.");
+        }
+        AIRTABLE_TOKEN = tokenInput;
         
         document.getElementById('error-zone').innerHTML = "";
         document.getElementById('error-zone').style.display = "none";
 
-        const dataStatu = await fetchAirtableData(AT_TABLES.Statu);
+        const dataStatut = await fetchAirtableData(AT_TABLES.Statut);
         const dataSacrements = await fetchAirtableData(AT_TABLES.Sacrements);
         const dataQui = await fetchAirtableData(AT_TABLES.Qui);
         const dataEvenement = await fetchAirtableData(AT_TABLES.Evenement);
 
-        // Construction des dictionnaires ID -> Texte
-        mapStatu = {}; dataStatu.forEach(r => { if(r.airtable_id && r.Name) mapStatu[r.airtable_id] = r.Name; });
+        mapStatut = {}; dataStatut.forEach(r => { if(r.airtable_id && r.Name) mapStatut[r.airtable_id] = r.Name; });
         mapSacrements = {}; dataSacrements.forEach(r => { if(r.airtable_id && r.Name) mapSacrements[r.airtable_id] = r.Name; });
         mapEvenements = {}; dataEvenement.forEach(r => { if(r.airtable_id && r.Name) mapEvenements[r.airtable_id] = r.Name; });
 
         try {
-            // 1. TABLE STATU
-            tables.statu = new Tabulator("#table-statu", {
-                data: dataStatu, layout: "fitColumns",
+            // 1. TABLE STATUT
+            tables.statut = new Tabulator("#table-statut", {
+                data: dataStatut, layout: "fitColumns",
                 columns: [
                     { title: "Statut Name", field: "Name", editor: "input" }, 
                     { title: "Qui", field: "Qui", formatter: (c) => resolveAirtableIds(c.getValue(), {}) },
-                    { formatter: deleteIconFormatter, width: 40, hozAlign: "center", cellClick: (e, cell) => deleteAirtableRecord(AT_TABLES.Statu, cell) }
+                    { formatter: deleteIconFormatter, width: 40, hozAlign: "center", cellClick: (e, cell) => deleteAirtableRecord(AT_TABLES.Statut, cell) }
                 ],
-                cellEdited: (cell) => handleCellEdit(AT_TABLES.Statu, cell, {})
+                cellEdited: (cell) => handleCellEdit(AT_TABLES.Statut, cell, {})
             });
 
             // 2. TABLE SACREMENTS
@@ -268,9 +271,9 @@
                     { title: "Nom Prénom", field: "Prenom Nom", editor: "input" },
                     { title: "Tel Whatsapp", field: "Tel Whatsapp", editor: "input" },
                     { 
-                        title: "Status", field: "Status", 
-                        editor: "list", editorParams: { values: () => getDropdownOptions(mapStatu), clearable: true },
-                        formatter: (c) => resolveAirtableIds(c.getValue(), mapStatu)
+                        title: "Statut", field: "Statut", 
+                        editor: "list", editorParams: { values: () => getDropdownOptions(mapStatut), clearable: true },
+                        formatter: (c) => resolveAirtableIds(c.getValue(), mapStatut)
                     },
                     { 
                         title: "Sacrements", field: "Sacrements", 
@@ -292,7 +295,7 @@
                 cellEdited: (cell) => {
                     let mapToUse = {};
                     const f = cell.getField();
-                    if (f === "Status") mapToUse = mapStatu;
+                    if (f === "Statut") mapToUse = mapStatut;
                     if (f === "Sacrements") mapToUse = mapSacrements;
                     if (f === "Evenement" || f === "Evenement 2") mapToUse = mapEvenements;
                     handleCellEdit(AT_TABLES.Qui, cell, mapToUse);
@@ -311,7 +314,7 @@
                 cellEdited: (cell) => handleCellEdit(AT_TABLES.Evenement, cell, {})
             });
 
-            showGlobalError("<span style='color:#16a34a'>✨ Succès : Tableaux synchronisés et liaisons décodées !</span>");
+            showGlobalError("<span style='color:#16a34a'>✨ Succès : Tableaux synchronisés !</span>");
         } catch(e) {
             showGlobalError("❌ Erreur d'affichage : " + e.message);
         }
