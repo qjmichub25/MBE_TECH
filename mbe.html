@@ -170,12 +170,12 @@
         let isSaved = false;
         let html5QrcodeScanner;
 
-        // Charger le jeton au démarrage s'il existe déjà
+        // Charger automatiquement le jeton au démarrage s'il a déjà été sauvegardé
         if (localStorage.getItem('airtable_pat')) {
             patInputEl.value = localStorage.getItem('airtable_pat');
         }
 
-        // Fonction pour enregistrer le jeton manuellement
+        // Fonction liée au bouton pour enregistrer le jeton dans le navigateur
         function saveToken() {
             const tokenValue = patInputEl.value.trim();
             if (tokenValue) {
@@ -226,7 +226,6 @@
         }
 
         async function sendToAirtable(scannedValue) {
-            // Récupération dynamique du jeton saisi à l'écran
             const currentToken = patInputEl.value.trim();
 
             if (!currentToken) {
@@ -248,7 +247,8 @@
                     body: JSON.stringify({
                         fields: {
                             "Scan temporaire": scannedValue
-                        }
+                        },
+                        typecast: true // Force Airtable à convertir le texte brut vers les colonnes liées
                     })
                 });
 
@@ -266,7 +266,7 @@
             }
         }
 
-        // Lancement direct du scanner
+        // Lancement direct du scanner au chargement
         startScanner();
     </script>
 </body>
