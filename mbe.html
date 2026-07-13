@@ -69,7 +69,18 @@
         <img id="photo-preview" src="" alt="Aperçu">
         <div id="photo-status" class="status-badge status-waiting" style="display:none;">Prêt</div>
     </div>
-
+    
+<!-- ZONE SIGNATURE  -->
+    <div class="box">
+        <div><strong>Signature de l'intervenant :</strong></div>
+        <canvas id="signature-pad" width="300" height="150" style="border: 1px dashed #cbd5e1; border-radius: 8px; margin-top: 10px; background: #fff; touch-action: none;"></canvas>
+        <br>
+        <button class="token-btn" style="background:#64748b;" onclick="clearSignature()">Effacer</button>
+        <button class="photo-btn" style="background:#4f46e5;" onclick="saveSignature()">✍️ Valider la Signature</button>
+        <br>
+        <div id="sig-status" class="status-badge status-waiting" style="display:none;">Prêt</div>
+    </div>
+    
     <script>
         const BASE_ID = "app6vRq0Yd8eYcbam";     
         const TABLE_NAME = "Entree_Sortie";           
@@ -238,7 +249,123 @@ async function handlePhoto(input) {
                 photoStatusEl.innerText = "❌ Erreur : " + error.message;
             }
         }  
+// --- LOGIQUE DE LA SIGNATURE ---
+        const canvas = document.getElementById('signature-pad');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
 
+        // Récupère la position du doigt ou de la souris
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        function startDrawing(e) {
+            isDrawing = true;
+            const pos = getMousePos(e);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            e.preventDefault(); // Évite le défilement de l'écran pendant le dessin
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            const pos = getMousePos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            e.preventDefault();
+        }
+
+        function stopDrawing() {
+            isDrawing = false;
+        }
+
+        // Configuration du tracé
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#000000';
+
+        // Événements Souris
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        window.addEventListener('mouseup', stopDrawing);
+
+        // Événements Écran Tactile (Mobile)
+        canvas.addEventListener('touchstart', startDrawing, { passive: false });
+        canvas.addEventListener('touchmove', draw, { passive: false });
+        window.addEventListener('touchend', stopDrawing);
+
+        // Effacer la zone de dessin
+        function clearSignature() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Envoi sur ImgBB puis Airtable
+        async function saveSignature() {
+            if (!lastCreatedRecordId) {
+                alert("⚠️ Scannez d'abord un appareil avant de signer !");
+                return;
+            }
+
+            const imgbbKey = imgbbInputEl.value.trim();
+            if (!imgbbKey) {
+                alert("⚠️ Veuillez renseigner votre clé ImgBB !");
+                return;
+            }
+
+            const sigStatusEl = document.getElementById('sig-status');
+            sigStatusEl.style.display = "inline-block";
+            sigStatusEl.className = "status-badge status-waiting";
+            sigStatusEl.innerText = "⏳ Envoi de la signature...";
+
+            try {
+                // Conversion du dessin en image PNG
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                
+                // 1. Envoi vers ImgBB avec destruction auto après 10 minutes (600 secondes)
+                let formData = new FormData();
+                formData.append("image", blob, "signature.png");
+
+                const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}&expiration=600`, {
+                    method: "POST",
+                    body: formData
+                });
+                const imgbbData = await imgbbResponse.json();
+                if (!imgbbData.success) throw new Error("Échec ImgBB");
+
+                const publicSigUrl = imgbbData.data.url;
+                const currentToken = patInputEl.value.trim();
+
+                // 2. Liaison de la signature à l'enregistrement en cours sur Airtable
+                const airtableResponse = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}/${lastCreatedRecordId}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${currentToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fields: {
+                            "Signature": [{ 
+                                "url": publicSigUrl,
+                                "filename": "signature.png"
+                            }]
+                        }
+                    })
+                });
+
+                if (airtableResponse.ok) {
+                    sigStatusEl.className = "status-badge status-success";
+                    sigStatusEl.innerText = "✅ Signature enregistrée !";
+                } else {
+                    throw new Error("Refus Airtable");
+                }
+            } catch (error) {
+                sigStatusEl.className = "status-badge status-error";
+                sigStatusEl.innerText = "❌ " + error.message;
+            }
+        }
         startScanner();
     </script>
 </body>
