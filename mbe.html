@@ -3,145 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner MBE Scan</title>
-    <!-- Bibliothèque spéciale QR Codes et DataMatrix -->
+    <title>Scanner & Photo MBE Scan</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <style>
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: #f4f7f9;
-            margin: 0;
-            padding: 15px;
-            text-align: center;
-        }
-        .header { 
-            background: #0284c7; 
-            color: white; 
-            padding: 15px; 
-            border-radius: 12px; 
-            margin-bottom: 15px; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        }
+        body { font-family: 'Segoe UI', Roboto, sans-serif; background: #f4f7f9; margin: 0; padding: 15px; text-align: center; }
+        .header { background: #0284c7; color: white; padding: 15px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .header h2 { margin: 0; font-size: 20px; }
-        .back-btn {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            text-decoration: none;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: bold;
-        }
-        
-        /* Barre de Token style Capture d'écran */
-        .token-bar {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 12px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .token-label {
-            font-weight: bold;
-            color: #334155;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .token-input {
-            padding: 8px 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            width: 100%;
-            max-width: 300px;
-            font-family: monospace;
-            font-size: 14px;
-        }
-        .token-btn {
-            background: #4f46e5;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .token-btn:hover {
-            background: #4338ca;
-        }
-
-        #camera-container {
-            position: relative;
-            width: 100%;
-            max-width: 500px;
-            margin: 0 auto;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            background: #000;
-        }
-        #reader {
-            width: 100%;
-        }
-        .scan-laser {
-            position: absolute;
-            top: 50%;
-            left: 5%;
-            width: 90%;
-            height: 2px;
-            background: red;
-            box-shadow: 0 0 8px red;
-            animation: laserMove 2s infinite ease-in-out;
-            z-index: 10;
-            pointer-events: none;
-        }
-        @keyframes laserMove {
-            0% { top: 20%; }
-            50% { top: 80%; }
-            100% { top: 20%; }
-        }
-        #result-box {
-            background: white;
-            margin-top: 20px;
-            padding: 15px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-        .status-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 14px;
-            margin-top: 10px;
-        }
+        .token-bar { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; margin-bottom: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .token-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; width: 100%; }
+        .token-input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; max-width: 250px; font-family: monospace; }
+        .token-btn { background: #4f46e5; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px; }
+        #camera-container { position: relative; width: 100%; max-width: 500px; margin: 0 auto; border-radius: 12px; overflow: hidden; background: #000; }
+        #reader { width: 100%; }
+        .scan-laser { position: absolute; top: 50%; left: 5%; width: 90%; height: 2px; background: red; box-shadow: 0 0 8px red; animation: laserMove 2s infinite ease-in-out; z-index: 10; pointer-events: none; }
+        @keyframes laserMove { 0% { top: 20%; } 50% { top: 80%; } 100% { top: 20%; } }
+        .box { background: white; margin-top: 15px; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center; }
+        .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 14px; margin-top: 10px; }
         .status-waiting { background: #e2e8f0; color: #64748b; }
         .status-success { background: #dcfce7; color: #16a34a; }
         .status-error { background: #fee2e2; color: #dc2626; }
+        
+        .photo-btn { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; display: inline-flex; align-items: center; gap: 8px; }
+        #photo-preview { max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
 
     <div class="header">
-        <a href="index.html" class="back-btn">⬅ Menu</a>
-        <h2>Scanner MBE Scan</h2>
+        <a href="index.html" style="color:white; text-decoration:none; font-weight:bold;">⬅ Menu</a>
+        <h2>Scanner & Photo MBE</h2>
         <div style="width: 42px;"></div>
     </div>
 
-    <!-- Barre de Saisie du Jeton (PAT) -->
+    <!-- ZONE DE CONNEXION DOUBLE -->
     <div class="token-bar">
-        <span class="token-label">🔑 Jeton (PAT) :</span>
-        <input type="password" id="pat-input" class="token-input" placeholder="patxxxxxxxxxxxxxxxxx">
-        <button onclick="saveToken()" class="token-btn">Connexion & Charger</button>
+        <div class="token-row">
+            <span style="font-weight:bold; width: 110px; text-align: right;">🔑 Airtable PAT :</span>
+            <input type="password" id="pat-input" class="token-input" placeholder="patxxxxxxxxxxxxxxxxx">
+        </div>
+        <div class="token-row">
+            <span style="font-weight:bold; width: 110px; text-align: right;">📷 Clé ImgBB :</span>
+            <input type="password" id="imgbb-input" class="token-input" placeholder="Clé API ImgBB">
+        </div>
+        <button onclick="saveTokens()" class="token-btn">Enregistrer les connexions</button>
     </div>
 
     <div id="camera-container">
@@ -149,90 +53,83 @@
         <div class="scan-laser"></div>
     </div>
 
-    <div id="result-box">
+    <!-- ZONE SCAN -->
+    <div class="box">
         <div><strong>Dernier code détecté :</strong></div>
         <h3 id="scanned-code" style="margin: 10px 0; color: #1e293b;">En attente de lecture...</h3>
         <div id="sync-status" class="status-badge status-waiting">Initialisation...</div>
     </div>
 
+    <!-- ZONE CAPTURE PHOTO -->
+    <div class="box">
+        <div><strong>Associer une Photo au scan :</strong></div>
+        <input type="file" id="photo-input" accept="image/*" capture="environment" style="display: none;" onchange="handlePhoto(this)">
+        <button class="photo-btn" onclick="document.getElementById('photo-input').click()">📷 Prendre une Photo</button>
+        <br>
+        <img id="photo-preview" src="" alt="Aperçu">
+        <div id="photo-status" class="status-badge status-waiting" style="display:none;">Prêt</div>
+    </div>
+
     <script>
-        // ==========================================
-        // CONFIGURATION AIRTABLE STATIC
-        // ==========================================
         const BASE_ID = "app6vRq0Yd8eYcbam";     
-        const TABLE_NAME = "Entree_Sortie";                   
-        // ==========================================
+        const TABLE_NAME = "Entree_Sortie";           
 
         const codeEl = document.getElementById('scanned-code');
         const statusEl = document.getElementById('sync-status');
+        const photoStatusEl = document.getElementById('photo-status');
         const patInputEl = document.getElementById('pat-input');
+        const imgbbInputEl = document.getElementById('imgbb-input');
         
         let isSaved = false;
-        let html5QrcodeScanner;
+        let html5QrcodeScanner = null;
+        let lastCreatedRecordId = null; 
 
-        // Charger automatiquement le jeton au démarrage s'il a déjà été sauvegardé
+        // Restauration des clés sauvegardées au chargement
         if (localStorage.getItem('airtable_pat')) {
             patInputEl.value = localStorage.getItem('airtable_pat');
         }
+        if (localStorage.getItem('imgbb_key')) {
+            imgbbInputEl.value = localStorage.getItem('imgbb_key');
+        }
 
-        // Fonction liée au bouton pour enregistrer le jeton dans le navigateur
-        function saveToken() {
-            const tokenValue = patInputEl.value.trim();
-            if (tokenValue) {
-                localStorage.setItem('airtable_pat', tokenValue);
-                alert("✅ Jeton enregistré et prêt pour le scan !");
-            } else {
-                localStorage.removeItem('airtable_pat');
-                alert("⚠️ Jeton vidé.");
-            }
+        function saveTokens() {
+            const patValue = patInputEl.value.trim();
+            const imgbbValue = imgbbInputEl.value.trim();
+            
+            if (patValue) localStorage.setItem('airtable_pat', patValue);
+            if (imgbbValue) localStorage.setItem('imgbb_key', imgbbValue);
+            
+            alert("Configuration sauvegardée localement !");
+            startScanner();
         }
 
         function startScanner() {
+            if (html5QrcodeScanner) html5QrcodeScanner.clear();
             html5QrcodeScanner = new Html5Qrcode("reader");
-            
-            html5QrcodeScanner.start(
-                { facingMode: "environment" }, 
-                {
-                    fps: 10,    
-                    qrbox: function(width, height) {
-                        return { width: width * 0.7, height: height * 0.7 }; 
-                    }
-                },
-                (decodedText) => {
-                    if (!isSaved) {
-                        processCode(decodedText);
-                    }
-                },
-                (errorMessage) => {}
+            const config = { fps: 10, qrbox: (w, h) => ({ width: w * 0.8, height: h * 0.4 }) };
+
+            html5QrcodeScanner.start({ facingMode: "environment" }, config,
+                (text) => { if (!isSaved) processCode(text); }, () => {}
             ).then(() => {
                 statusEl.className = "status-badge status-waiting";
-                statusEl.innerText = "Prêt à scanner votre DataMatrix !";
-            }).catch((err) => {
-                statusEl.className = "status-badge status-error";
-                statusEl.innerText = "Erreur d'initialisation.";
+                statusEl.innerText = "Prêt à scanner !";
+            }).catch(() => {
+                html5QrcodeScanner.start(undefined, config, (text) => { if (!isSaved) processCode(text); }, () => {})
+                .then(() => { statusEl.innerText = "Webcam PC active !"; });
             });
         }
 
         async function processCode(codeValue) {
             isSaved = true;
             codeEl.innerText = codeValue;
-            
-            try { navigator.vibrate(100); } catch(e) {}
-
+            try { if (navigator.vibrate) navigator.vibrate(100); } catch(e) {}
             await sendToAirtable(codeValue);
-            
-            // Attendre 4 secondes avant de réactiver le scanner
             setTimeout(() => { isSaved = false; }, 4000);
         }
 
         async function sendToAirtable(scannedValue) {
             const currentToken = patInputEl.value.trim();
-
-            if (!currentToken) {
-                statusEl.className = "status-badge status-error";
-                statusEl.innerText = "❌ Erreur : Veuillez saisir un Jeton (PAT) en haut.";
-                return;
-            }
+            if (!currentToken) return alert("Pas de jeton Airtable !");
 
             statusEl.className = "status-badge status-waiting";
             statusEl.innerText = "⏳ Envoi vers Airtable...";
@@ -240,25 +137,18 @@
             try {
                 const response = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`,
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Authorization': `Bearer ${currentToken}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        fields: {
-                            "Scan temporaire": scannedValue
-                        },
-                        typecast: true // Force Airtable à convertir le texte brut vers les colonnes liées
+                        fields: { "Scan temporaire": scannedValue },
+                        typecast: true 
                     })
                 });
 
                 if (response.ok) {
+                    const data = await response.json();
+                    lastCreatedRecordId = data.id; 
                     statusEl.className = "status-badge status-success";
-                    statusEl.innerText = "✅ Synchronisé dans Entree_Sortie !";
-                } else {
-                    const errorData = await response.json().catch(() => ({}));
-                    const errorMsg = errorData.error ? (errorData.error.message || errorData.error) : "Erreur " + response.status;
-                    throw new Error(errorMsg);
+                    statusEl.innerText = "✅ Synchronisé ! Prenez la photo.";
                 }
             } catch (error) {
                 statusEl.className = "status-badge status-error";
@@ -266,7 +156,69 @@
             }
         }
 
-        // Lancement direct du scanner au chargement
+        async function handlePhoto(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            if (!lastCreatedRecordId) {
+                alert("⚠️ Scannez d'abord un appareil avant de prendre la photo !");
+                return;
+            }
+
+            const imgbbKey = imgbbInputEl.value.trim();
+            if (!imgbbKey) {
+                alert("⚠️ Veuillez renseigner votre clé ImgBB en haut de la page !");
+                return;
+            }
+
+            const preview = document.getElementById('photo-preview');
+            preview.src = URL.createObjectURL(file);
+            preview.style.display = "inline-block";
+
+            photoStatusEl.style.display = "inline-block";
+            photoStatusEl.className = "status-badge status-waiting";
+            photoStatusEl.innerText = "⏳ Envoi de la photo...";
+
+            try {
+                // 1. Envoi vers ImgBB avec la clé dynamique
+                let formData = new FormData();
+                formData.append("image", file);
+
+                const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, {
+                    method: "POST",
+                    body: formData
+                });
+
+                const imgbbData = await imgbbResponse.json();
+                if (!imgbbData.success) throw new Error("Échec de l'hébergement de l'image");
+
+                const publicImageUrl = imgbbData.data.url;
+
+                // 2. Envoi de l'URL à Airtable
+                const currentToken = patInputEl.value.trim();
+                const airtableResponse = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}/${lastCreatedRecordId}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${currentToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fields: {
+                            "Photos": [{ "url": publicImageUrl }]
+                        }
+                    })
+                });
+
+                if (airtableResponse.ok) {
+                    photoStatusEl.className = "status-badge status-success";
+                    photoStatusEl.innerText = "✅ Photo envoyée avec succès !";
+                } else {
+                    throw new Error("Refus de la photo par Airtable");
+                }
+
+            } catch (error) {
+                photoStatusEl.className = "status-badge status-error";
+                photoStatusEl.innerText = "❌ Erreur : " + error.message;
+            }
+        }
+
         startScanner();
     </script>
 </body>
