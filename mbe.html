@@ -155,8 +155,7 @@
                 statusEl.innerText = "❌ " + error.message; 
             }
         }
-
-        async function handlePhoto(input) {
+async function handlePhoto(input) {
             const file = input.files[0];
             if (!file) return;
 
@@ -180,11 +179,11 @@
             photoStatusEl.innerText = "⏳ Envoi de la photo...";
 
             try {
-                // 1. Envoi vers ImgBB avec la clé dynamique
+                // 1. Envoi de la nouvelle image vers ImgBB avec expiration (10 min)
                 let formData = new FormData();
                 formData.append("image", file);
 
-                const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, {
+                const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}&expiration=600`, {
                     method: "POST",
                     body: formData
                 });
@@ -193,23 +192,43 @@
                 if (!imgbbData.success) throw new Error("Échec de l'hébergement de l'image");
 
                 const publicImageUrl = imgbbData.data.url;
-
-                // 2. Envoi de l'URL à Airtable
                 const currentToken = patInputEl.value.trim();
+
+                // 2. Récupérer d'abord l'enregistrement actuel pour avoir les photos existantes
+                const getRecordResponse = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}/${lastCreatedRecordId}`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (!getRecordResponse.ok) throw new Error("Impossible de lire les photos existantes");
+                const currentRecord = await getRecordResponse.json();
+                
+                // On récupère le tableau existant ou on en crée un vide s'il n'y a pas encore de photo
+                let existingPhotos = currentRecord.fields["Photos"] || [];
+
+                // 3. Préparer le nouvel objet photo à ajouter
+                const newPhotoObj = { 
+                    "url": publicImageUrl,
+                    "filename": `photo_${existingPhotos.length + 1}.jpg` 
+                };
+
+                // On fusionne l'ancienne liste avec la nouvelle photo
+                const updatedPhotos = [...existingPhotos, newPhotoObj];
+
+                // 4. Envoi de la liste complète mise à jour à Airtable
                 const airtableResponse = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}/${lastCreatedRecordId}`, {
                     method: 'PATCH',
                     headers: { 'Authorization': `Bearer ${currentToken}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         fields: {
-                            "Photos": [{ "url": publicImageUrl }]
-                            "filename": "photo_atelier.jpg"
+                            "Photos": updatedPhotos
                         }
                     })
                 });
 
                 if (airtableResponse.ok) {
                     photoStatusEl.className = "status-badge status-success";
-                    photoStatusEl.innerText = "✅ Photo envoyée avec succès !";
+                    photoStatusEl.innerText = `✅ Photo ${updatedPhotos.length} envoyée avec succès !`;
                 } else {
                     throw new Error("Refus de la photo par Airtable");
                 }
@@ -218,7 +237,7 @@
                 photoStatusEl.className = "status-badge status-error";
                 photoStatusEl.innerText = "❌ Erreur : " + error.message;
             }
-        }
+        }  }
 
         startScanner();
     </script>
