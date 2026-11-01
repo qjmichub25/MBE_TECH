@@ -1,1 +1,248 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b5fff">
+<title>MBE Atelier</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mut:#6a737d;--ac:#0b5fff;--acx:#fff;--bd:#dfe3e8;--ok:#1a7f37;--err:#c62828;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#14171a;--card:#1e2328;--tx:#e8eaed;--mut:#98a2ad;--ac:#5b9bff;--acx:#0b1220;--bd:#2f363d;--ok:#2e8b4a;--err:#d9534f}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+h1{font-size:20px;margin:0}h2{font-size:17px;margin:18px 0 6px}
+header.bar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--card);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
+header.bar h1{flex:1;font-size:18px}
+.pad{padding:12px;max-width:720px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin:10px 0}
+.item{cursor:pointer}
+.btn{min-height:44px;padding:0 16px;border:0;border-radius:10px;background:var(--ac);color:var(--acx);font:600 16px system-ui,sans-serif;cursor:pointer}
+.btn.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+.btn.big{width:100%;min-height:56px;font-size:18px;margin:6px 0}
+.btn:disabled{opacity:.5}
+input,select,textarea{width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:16px system-ui,sans-serif}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+.row{display:flex;gap:8px}.row>*{flex:1}.row>.btn{flex:0 0 auto}
+.mut{color:var(--mut);font-size:14px}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--bd);color:var(--mut)}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.thumbs img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--bd)}
+video{width:100%;max-height:55vh;object-fit:cover;border-radius:12px;background:#000}
+#toast{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));padding:12px;border-radius:10px;background:var(--ok);color:#fff;display:none;z-index:9}
+#toast.err{background:var(--err)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+const SB_URL = 'https://ykydrnkytytiyhnnwnpp.supabase.co';
+const SB_KEY = 'sb_publishable_-Eokc1JGe4TKmXohcalAPw_wO9JdHZ6'; // clé publique : sans danger dans le code
+const sb = supabase.createClient(SB_URL, SB_KEY);
 
+const TYPES = {entree:`Entrée`,diagnostic:`Diagnostic`,nettoyage:`Nettoyage`,dp:`Demande de prix`,ha:`Achat fournisseur`,demontage:`Démontage`,remontage:`Remontage`,recablage:`Recâblage`,sortie:`Sortie`,devis:`Devis`,acceptation:`Acceptation`};
+const ETATS = {envoye:`Envoyé`,attente_client:`Attente client`,attente_fournisseur:`Attente fournisseur`};
+const UNITES = {unitaire:`unité`,m:`m`,km:`km`,hr:`h`};
+const FOURN = ['dp','ha'], GER = ['devis','acceptation'];
+let me, soc = [], backFn = null;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const view = h => { $('#app').innerHTML = h; window.scrollTo(0,0); };
+const fmt = d => new Date(d).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'});
+const orn = n => `OR-${String(n).padStart(6,'0')}`;
+const socName = id => (soc.find(s => s.id === id) || {}).nom || '';
+const bucketOf = r => GER.includes(r.type) ? 'devis-gerants' : 'or-fichiers';
+function toast(m, err){ const t=$('#toast'); t.textContent=m; t.className=err?'err':''; t.style.display='block'; clearTimeout(toast.t); toast.t=setTimeout(()=>t.style.display='none', err?6000:2500); }
+function bar(title, back, right=''){ backFn = back; return `<header class="bar">${back?`<button class="btn sec" id="back" aria-label="Retour">←</button>`:''}<h1>${esc(title)}</h1>${right}</header>`; }
+document.addEventListener('click', e => { if (e.target.closest('#back') && backFn) backFn(); });
+
+/* ---------- Connexion ---------- */
+function showLogin(){
+  backFn = null;
+  view(`<div class="pad"><h1>MBE Atelier</h1><form id="f" class="card"><label for="em">E-mail</label><input id="em" type="email" autocomplete="username" required><label for="pw">Mot de passe</label><input id="pw" type="password" autocomplete="current-password" required><p></p><button class="btn big">Se connecter</button></form></div>`);
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const b = e.target.querySelector('button'); b.disabled = true;
+    const {error} = await sb.auth.signInWithPassword({email:$('#em').value.trim(), password:$('#pw').value});
+    b.disabled = false;
+    if (error) return toast(`Connexion refusée : ${error.message}`, 1);
+    enter();
+  };
+}
+async function enter(){
+  const {data:{user}} = await sb.auth.getUser();
+  const {data, error} = await sb.from('profils').select('initiales,role').eq('id', user.id).single();
+  if (error || !data){ toast(`Compte sans profil : contactez l’administrateur.`, 1); await sb.auth.signOut(); return; }
+  me = {id:user.id, ...data};
+  const r = await sb.from('t_societe').select('id,nom,typologie').order('nom'); soc = r.data || [];
+  home();
+}
+
+/* ---------- Accueil ---------- */
+async function home(){
+  view(bar(`Atelier`, null, `<span class="mut">${esc(me.initiales)} · ${me.role==='gerant'?`gérant`:`technicien`}</span><button class="btn sec" id="out">Sortir</button>`) +
+    `<div class="pad"><button class="btn big" id="scan">Scanner un QR</button>
+     <div class="card"><label for="q">Code matériel ou n° d’OR</label><div class="row"><input id="q" placeholder="MAT-0001 ou 2"><button class="btn" id="go">OK</button></div></div>
+     <button class="btn sec big" id="neu">Nouvelle entrée sans QR</button>
+     <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div></div>`);
+  $('#out').onclick = () => sb.auth.signOut();
+  $('#scan').onclick = scan;
+  $('#neu').onclick = () => neuf('');
+  $('#go').onclick = () => { const v = $('#q').value.trim(); if (!v) return; /^\d+$/.test(v) ? openOR(+v) : lookup(v); };
+  const {data, error} = await sb.from('v_or_en_cours').select('n_or,date_op,id_mat,matcop,societe_id').order('date_op',{ascending:false});
+  if (error) return $('#list').textContent = error.message;
+  $('#list').className = '';
+  $('#list').innerHTML = data.length ? data.map(r => `<div class="card item" data-n="${r.n_or}"><b>${orn(r.n_or)}</b> <span class="tag">${esc(socName(r.societe_id))}</span><div>${esc(r.matcop||'')}</div><div class="mut">${fmt(r.date_op)}${r.id_mat?` · ${esc(r.id_mat)}`:''}</div></div>`).join('') : `<p class="mut">Aucun OR en cours.</p>`;
+  $('#list').onclick = e => { const c = e.target.closest('[data-n]'); if (c) openOR(+c.dataset.n); };
+}
+
+/* ---------- Scan et recherche par code ---------- */
+async function scan(){
+  let stream, stop = false;
+  const end = () => { stop = true; if (stream) stream.getTracks().forEach(t => t.stop()); };
+  view(bar(`Scanner`, () => { end(); home(); }) + `<div class="pad"><video id="v" playsinline muted></video><p class="mut" id="st">Visez le QR code…</p><div class="row"><input id="man" placeholder="ou saisir le code"><button class="btn" id="ok">OK</button></div></div>`);
+  $('#ok').onclick = () => { end(); lookup($('#man').value); };
+  const v = $('#v'), c = document.createElement('canvas'), x = c.getContext('2d',{willReadFrequently:true});
+  const tick = () => {
+    if (stop) return;
+    if (v.readyState >= 2 && v.videoWidth){
+      const k = Math.min(1, 640 / v.videoWidth);
+      c.width = Math.round(v.videoWidth*k); c.height = Math.round(v.videoHeight*k);
+      x.drawImage(v, 0, 0, c.width, c.height);
+      const d = x.getImageData(0,0,c.width,c.height), r = jsQR(d.data, d.width, d.height);
+      if (r && r.data){ end(); lookup(r.data); return; }
+    }
+    requestAnimationFrame(tick);
+  };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});
+    if (stop){ stream.getTracks().forEach(t => t.stop()); return; }
+    v.srcObject = stream; await v.play(); tick();
+  } catch(e){ $('#st').textContent = `Caméra indisponible : saisissez le code.`; }
+}
+async function lookup(code){
+  code = String(code||'').trim(); if (!code) return;
+  const {data:ent, error} = await sb.from('t_or').select('n_or').eq('type','entree').eq('id_mat',code).limit(1);
+  if (error) return toast(error.message, 1);
+  if (!ent.length) return neuf(code);
+  const {data:open} = await sb.from('v_or_en_cours').select('n_or').eq('id_mat',code).limit(1);
+  if (open && open.length) return openOR(open[0].n_or);
+  histo(code, true);
+}
+
+/* ---------- Fiche d’un OR ---------- */
+async function urls(rows){
+  const by = {}, map = {};
+  rows.forEach(r => (r.pieces_jointes||[]).forEach(p => (by[bucketOf(r)] = by[bucketOf(r)] || []).push(p)));
+  for (const b in by){
+    const {data} = await sb.storage.from(b).createSignedUrls(by[b], 3600);
+    (data||[]).forEach(x => { if (x.signedUrl) map[b+'/'+x.path] = x.signedUrl; });
+  }
+  return map;
+}
+const thumbs = (r, m) => {
+  const t = (r.pieces_jointes||[]).map(p => { const u = m[bucketOf(r)+'/'+p]; if (!u) return '';
+    return /\.pdf$/i.test(p) ? `<a class="tag" href="${esc(u)}" target="_blank" rel="noopener">PDF</a>` : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="" loading="lazy"></a>`; }).join('');
+  return t ? `<div class="thumbs">${t}</div>` : '';
+};
+const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.etat?` <span class="tag">${ETATS[r.etat]}</span>`:''}</div>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
+
+async function openOR(n){
+  const {data:rows, error} = await sb.from('t_or').select('*').eq('n_or',n).order('date_op');
+  if (error) return toast(error.message, 1);
+  const en = (rows||[]).find(r => r.type === 'entree');
+  if (!en) return toast(`OR introuvable`, 1);
+  const m = await urls(rows);
+  view(bar(orn(n), home) + `<div class="pad"><div class="card"><b>${esc(socName(en.societe_id))}</b><div>${esc(en.matcop||'')}</div><div class="mut">${fmt(en.date_op)}${en.id_mat?` · ${esc(en.id_mat)}`:''} · ${esc(en.qui||'')}</div>${thumbs(en,m)}</div>
+    <button class="btn big" id="add">Ajouter une ligne</button>
+    ${en.id_mat?`<button class="btn sec big" id="his">Historique du matériel</button>`:''}
+    <h2>Lignes</h2>${rows.filter(r => r !== en).map(r => line(r,m)).join('') || `<p class="mut">Aucune ligne.</p>`}</div>`);
+  $('#add').onclick = () => addLine(en);
+  if ($('#his')) $('#his').onclick = () => histo(en.id_mat);
+}
+async function histo(code, propose){
+  const {data, error} = await sb.from('v_histo_materiel').select('n_or,date_op,type,matcop,qui').eq('id_mat_entree',code).order('date_op',{ascending:false});
+  if (error) return toast(error.message, 1);
+  view(bar(`Historique ${code}`, home) + `<div class="pad">${propose?`<p>Matériel connu, aucun OR en cours.</p><button class="btn big" id="neu">Nouvelle entrée</button>`:''}${(data||[]).map(r => `<div class="card"><b>${orn(r.n_or)} · ${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span><div>${esc(r.matcop||'')}</div></div>`).join('') || `<p class="mut">Aucun historique.</p>`}</div>`);
+  if (propose) $('#neu').onclick = () => neuf(code);
+}
+
+/* ---------- Photos ---------- */
+async function shrink(file){
+  if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok,ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = url; });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth*k); c.height = Math.round(img.naturalHeight*k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise(ok => c.toBlob(b => ok(b || file), 'image/jpeg', .8));
+  } catch { return file; } finally { URL.revokeObjectURL(url); }
+}
+async function upload(file, bucket, n){
+  const blob = await shrink(file);
+  const ext = ({'application/pdf':'pdf','image/png':'png','image/gif':'gif','image/heic':'heic','image/webp':'webp'})[blob.type] || 'jpg';
+  const stamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
+  const path = `${n}/${stamp}_${Math.random().toString(36).slice(2,6)}.${ext}`;
+  const {error} = await sb.storage.from(bucket).upload(path, blob, {contentType: blob.type || 'image/jpeg', upsert:false});
+  if (error) throw error;
+  return path;
+}
+
+/* ---------- Nouvelle entrée ---------- */
+function neuf(code){
+  view(bar(`Nouvelle entrée`, home) + `<form id="f" class="pad"><div class="card"><label for="code">Code QR</label><input id="code" value="${esc(code)}" placeholder="facultatif"><label for="so">Société</label><select id="so" required><option value="">— choisir —</option>${soc.map(s => `<option value="${s.id}">${esc(s.nom)}</option>`).join('')}</select><label for="txt">Matériel</label><textarea id="txt" rows="3" placeholder="Ex. Ampli Crest 9001, ventilation bruyante" required></textarea><label for="ph">Photos</label><input id="ph" type="file" accept="image/*" multiple></div><button class="btn big">Créer l’entrée</button></form>`);
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
+    try {
+      const {data, error} = await sb.from('t_or').insert({type:'entree', id_mat:$('#code').value.trim()||null, societe_id:$('#so').value, matcop:$('#txt').value.trim()}).select('id,n_or').single();
+      if (error) throw error;
+      const files = [...$('#ph').files];
+      if (files.length){
+        const paths = []; for (const f of files) paths.push(await upload(f, 'or-fichiers', data.n_or));
+        const {error:e2} = await sb.from('t_or').update({pieces_jointes:paths}).eq('id', data.id); if (e2) throw e2;
+      }
+      toast(`Entrée créée : ${orn(data.n_or)}`); openOR(data.n_or);
+    } catch(err){ toast(err.message || String(err), 1); b.disabled = false; }
+  };
+}
+
+/* ---------- Ajouter une ligne ---------- */
+function addLine(en){
+  const types = Object.keys(TYPES).filter(t => t !== 'entree' && (me.role === 'gerant' || !GER.includes(t)));
+  const fourn = soc.filter(s => (s.typologie||[]).includes('fournisseur'));
+  view(bar(`Ligne · ${orn(en.n_or)}`, () => openOR(en.n_or)) + `<form id="f" class="pad"><div class="card">
+    <label for="ty">Type</label><select id="ty">${types.map(t => `<option value="${t}">${TYPES[t]}</option>`).join('')}</select>
+    <label for="txt">Description</label><textarea id="txt" rows="3"></textarea>
+    <div class="row"><div><label for="qte">Quantité</label><input id="qte" type="number" step="0.01" min="0" value="1" inputmode="decimal"></div><div><label for="un">Unité</label><select id="un">${Object.entries(UNITES).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select></div></div>
+    <div id="fo" hidden><label for="fs">Fournisseur</label><select id="fs"><option value="">—</option>${fourn.map(s => `<option value="${s.id}">${esc(s.nom)}</option>`).join('')}</select><label for="pu">Prix d’achat HT (€)</label><input id="pu" type="number" step="0.01" min="0" inputmode="decimal"></div>
+    <label for="et">État</label><select id="et"><option value="">—</option>${Object.entries(ETATS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+    <label for="ph">Photos / documents</label><input id="ph" type="file" accept="image/*,application/pdf" multiple></div>
+    <button class="btn big">Enregistrer</button></form>`);
+  const sync = () => { $('#fo').hidden = !FOURN.includes($('#ty').value); };
+  $('#ty').onchange = sync; sync();
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
+    try {
+      const type = $('#ty').value, paths = [];
+      for (const f of $('#ph').files) paths.push(await upload(f, GER.includes(type) ? 'devis-gerants' : 'or-fichiers', en.n_or));
+      const row = {type, entree_id:en.id, matcop:$('#txt').value.trim()||null, qte:parseFloat($('#qte').value)||1, unite:$('#un').value, pieces_jointes:paths};
+      if (FOURN.includes(type)){ row.societe_id = $('#fs').value || null; row.pu_achat = $('#pu').value ? parseFloat($('#pu').value) : null; }
+      if ($('#et').value) row.etat = $('#et').value;
+      const {error} = await sb.from('t_or').insert(row);
+      if (error) throw error;
+      toast(`Ligne enregistrée`); openOR(en.n_or);
+    } catch(err){ toast(err.message || String(err), 1); b.disabled = false; }
+  };
+}
+
+/* ---------- Démarrage ---------- */
+sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT'){ me = null; showLogin(); } });
+(async () => { const {data:{session}} = await sb.auth.getSession(); session ? enter() : showLogin(); })();
+</script>
+</body>
+</html>
