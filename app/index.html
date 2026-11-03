@@ -29,6 +29,10 @@ label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
 .tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--bd);color:var(--mut)}
 .thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .thumbs img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--bd)}
+.chk{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:16px;color:var(--tx)}
+input[type=checkbox]{width:22px;min-height:22px;flex:none}
+select.et{width:auto;min-height:36px;font-size:14px;margin-top:6px}
+canvas#sg{width:100%;height:160px;background:#fff;border:1px solid var(--bd);border-radius:10px;touch-action:none;display:block;margin-bottom:6px}
 video{width:100%;max-height:55vh;object-fit:cover;border-radius:12px;background:#000}
 #toast{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));padding:12px;border-radius:10px;background:var(--ok);color:#fff;display:none;z-index:9}
 #toast.err{background:var(--err)}
@@ -44,8 +48,10 @@ const SB_URL = 'https://ykydrnkytytiyhnnwnpp.supabase.co';
 const SB_KEY = 'sb_publishable_-Eokc1JGe4TKmXohcalAPw_wO9JdHZ6'; // clé publique : sans danger dans le code
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
-const TYPES = {entree:`Entrée`,diagnostic:`Diagnostic`,nettoyage:`Nettoyage`,dp:`Demande de prix`,ha:`Achat fournisseur`,demontage:`Démontage`,remontage:`Remontage`,recablage:`Recâblage`,sortie:`Sortie`,devis:`Devis`,acceptation:`Acceptation`};
-const ETATS = {envoye:`Envoyé`,attente_client:`Attente client`,attente_fournisseur:`Attente fournisseur`};
+const TYPES = {entree:`◀️ Entrée`,diagnostic:`🩺 Diagnostic`,nettoyage:`🪣 Nettoyage`,demontage:`🪛 Démontage`,reparation:`🪛 Réparation`,remontage:`🪛 Remontage`,recablage:`🪢 Recâblage`,dp:`📞 Demande de prix`,ha:`🛒 Achat composants`,prestation:`✨ Prestation`,sortie:`▶️ Sortie`,devis:`Devis`,acceptation:`🤝 Accord client`};
+const ETATS = {besoin:`🎯 Besoin`,en_cours:`⚙️ En cours`,envoye:`Envoyé`,attente_client:`⌛ Attente client`,attente_fournisseur:`⌛ Attente fournisseur`,fait:`✅ Fait`};
+const BESOINS = {nettoyage:`🎯🪣 Nettoyage`,diagnostic:`🎯🩺 Diagnostic`,reparation:`🎯🪛 Réparation`,pieces:`🎯🔩 Pièces détachées`};
+const etOpts = cur => `<option value="">— état —</option>` + Object.entries(ETATS).map(([k,v]) => `<option value="${k}"${k===cur?' selected':''}>${v}</option>`).join('');
 const UNITES = {unitaire:`unité`,m:`m`,km:`km`,hr:`h`};
 const FOURN = ['dp','ha'], GER = ['devis','acceptation'];
 let me, soc = [], backFn = null;
@@ -149,7 +155,7 @@ const thumbs = (r, m) => {
     return /\.pdf$/i.test(p) ? `<a class="tag" href="${esc(u)}" target="_blank" rel="noopener">PDF</a>` : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="" loading="lazy"></a>`; }).join('');
   return t ? `<div class="thumbs">${t}</div>` : '';
 };
-const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.etat?` <span class="tag">${ETATS[r.etat]}</span>`:''}</div>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
+const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.type==='ha'&&r.pu_achat==null?` <span class="tag">⚠️ prix d’achat manquant</span>`:''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
 
 async function openOR(n){
   const {data:rows, error} = await sb.from('t_or').select('*').eq('n_or',n).order('date_op');
@@ -157,11 +163,15 @@ async function openOR(n){
   const en = (rows||[]).find(r => r.type === 'entree');
   if (!en) return toast(`OR introuvable`, 1);
   const m = await urls(rows);
-  view(bar(orn(n), home) + `<div class="pad"><div class="card"><b>${esc(socName(en.societe_id))}</b><div>${esc(en.matcop||'')}</div><div class="mut">${fmt(en.date_op)}${en.id_mat?` · ${esc(en.id_mat)}`:''} · ${esc(en.qui||'')}</div>${thumbs(en,m)}</div>
+  view(bar(orn(n), home) + `<div class="pad"><div class="card"><b>${esc(socName(en.societe_id))}</b><div>${esc(en.matcop||'')}</div><div class="mut">${fmt(en.date_op)}${en.id_mat?` · ${esc(en.id_mat)}`:''} · ${esc(en.qui||'')}</div>${(en.besoins||[]).map(b => ` <span class="tag">${BESOINS[b]||b}</span>`).join('')}${thumbs(en,m)}</div>
     <button class="btn big" id="add">Ajouter une ligne</button>
     ${en.id_mat?`<button class="btn sec big" id="his">Historique du matériel</button>`:''}
     <h2>Lignes</h2>${rows.filter(r => r !== en).map(r => line(r,m)).join('') || `<p class="mut">Aucune ligne.</p>`}</div>`);
   $('#add').onclick = () => addLine(en);
+  document.querySelectorAll('select.et').forEach(sel => sel.onchange = async () => {
+    const {error} = await sb.from('t_or').update({etat: sel.value || null}).eq('id', sel.dataset.id);
+    toast(error ? error.message : `État mis à jour`, !!error);
+  });
   if ($('#his')) $('#his').onclick = () => histo(en.id_mat);
 }
 async function histo(code, propose){
@@ -183,27 +193,45 @@ async function shrink(file){
     return await new Promise(ok => c.toBlob(b => ok(b || file), 'image/jpeg', .8));
   } catch { return file; } finally { URL.revokeObjectURL(url); }
 }
-async function upload(file, bucket, n){
-  const blob = await shrink(file);
+async function upload(file, bucket, n, pre=''){
+  const blob = pre ? file : await shrink(file);
   const ext = ({'application/pdf':'pdf','image/png':'png','image/gif':'gif','image/heic':'heic','image/webp':'webp'})[blob.type] || 'jpg';
   const stamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
-  const path = `${n}/${stamp}_${Math.random().toString(36).slice(2,6)}.${ext}`;
+  const path = `${n}/${pre}${stamp}_${Math.random().toString(36).slice(2,6)}.${ext}`;
   const {error} = await sb.storage.from(bucket).upload(path, blob, {contentType: blob.type || 'image/jpeg', upsert:false});
   if (error) throw error;
   return path;
 }
 
+/* ---------- Signature ---------- */
+function initSig(){
+  const c = $('#sg'), x = c.getContext('2d'); let d = false, has = false;
+  c.width = 600; c.height = 240; x.lineWidth = 3; x.lineCap = 'round'; x.strokeStyle = '#000';
+  const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX-r.left)*c.width/r.width, (e.clientY-r.top)*c.height/r.height]; };
+  c.onpointerdown = e => { d = has = true; c.setPointerCapture(e.pointerId); const [a,b] = pt(e); x.beginPath(); x.moveTo(a,b); };
+  c.onpointermove = e => { if (!d) return; const [a,b] = pt(e); x.lineTo(a,b); x.stroke(); };
+  c.onpointerup = c.onpointercancel = () => { d = false; };
+  $('#sgc').onclick = () => { x.clearRect(0,0,c.width,c.height); has = false; };
+  return () => !has ? Promise.resolve(null) : new Promise(ok => {
+    const t = document.createElement('canvas'); t.width = c.width; t.height = c.height;
+    const y = t.getContext('2d'); y.fillStyle = '#fff'; y.fillRect(0,0,t.width,t.height); y.drawImage(c,0,0);
+    t.toBlob(ok, 'image/png');
+  });
+}
+
 /* ---------- Nouvelle entrée ---------- */
 function neuf(code){
-  view(bar(`Nouvelle entrée`, home) + `<form id="f" class="pad"><div class="card"><label for="code">Code QR</label><input id="code" value="${esc(code)}" placeholder="facultatif"><label for="so">Société</label><select id="so" required><option value="">— choisir —</option>${soc.map(s => `<option value="${s.id}">${esc(s.nom)}</option>`).join('')}</select><label for="txt">Matériel</label><textarea id="txt" rows="3" placeholder="Ex. Ampli Crest 9001, ventilation bruyante" required></textarea><label for="ph">Photos</label><input id="ph" type="file" accept="image/*" multiple></div><button class="btn big">Créer l’entrée</button></form>`);
+  view(bar(`Nouvelle entrée`, home) + `<form id="f" class="pad"><div class="card"><label for="code">Code QR</label><input id="code" value="${esc(code)}" placeholder="facultatif"><label for="so">Société</label><select id="so" required><option value="">— choisir —</option>${soc.map(s => `<option value="${s.id}">${esc(s.nom)}</option>`).join('')}</select><label for="txt">Matériel</label><textarea id="txt" rows="3" placeholder="Ex. Ampli Crest 9001, ventilation bruyante" required></textarea><label>Besoins du client</label>${Object.entries(BESOINS).map(([k,v]) => `<label class="chk"><input type="checkbox" name="bs" value="${k}"> ${v}</label>`).join('')}<label for="ph">Photos</label><input id="ph" type="file" accept="image/*" multiple><label>Signature du client (dépôt)</label><canvas id="sg"></canvas><button type="button" class="btn sec" id="sgc">Effacer</button></div><button class="btn big">Créer l’entrée</button></form>`);
+  const getSig = initSig();
   $('#f').onsubmit = async e => {
     e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
     try {
-      const {data, error} = await sb.from('t_or').insert({type:'entree', id_mat:$('#code').value.trim()||null, societe_id:$('#so').value, matcop:$('#txt').value.trim()}).select('id,n_or').single();
+      const {data, error} = await sb.from('t_or').insert({type:'entree', id_mat:$('#code').value.trim()||null, societe_id:$('#so').value, matcop:$('#txt').value.trim(), besoins:[...document.querySelectorAll('input[name=bs]:checked')].map(i => i.value)}).select('id,n_or').single();
       if (error) throw error;
-      const files = [...$('#ph').files];
-      if (files.length){
-        const paths = []; for (const f of files) paths.push(await upload(f, 'or-fichiers', data.n_or));
+      const files = [...$('#ph').files], sg = await getSig(), paths = [];
+      for (const f of files) paths.push(await upload(f, 'or-fichiers', data.n_or));
+      if (sg) paths.push(await upload(sg, 'or-fichiers', data.n_or, 'signature_'));
+      if (paths.length){
         const {error:e2} = await sb.from('t_or').update({pieces_jointes:paths}).eq('id', data.id); if (e2) throw e2;
       }
       toast(`Entrée créée : ${orn(data.n_or)}`); openOR(data.n_or);
@@ -220,16 +248,19 @@ function addLine(en){
     <label for="txt">Description</label><textarea id="txt" rows="3"></textarea>
     <div class="row"><div><label for="qte">Quantité</label><input id="qte" type="number" step="0.01" min="0" value="1" inputmode="decimal"></div><div><label for="un">Unité</label><select id="un">${Object.entries(UNITES).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select></div></div>
     <div id="fo" hidden><label for="fs">Fournisseur</label><select id="fs"><option value="">—</option>${fourn.map(s => `<option value="${s.id}">${esc(s.nom)}</option>`).join('')}</select><label for="pu">Prix d’achat HT (€)</label><input id="pu" type="number" step="0.01" min="0" inputmode="decimal"></div>
+    <div id="sgw" hidden><label>Signature du client (récupération)</label><canvas id="sg"></canvas><button type="button" class="btn sec" id="sgc">Effacer</button></div>
     <label for="et">État</label><select id="et"><option value="">—</option>${Object.entries(ETATS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select>
     <label for="ph">Photos / documents</label><input id="ph" type="file" accept="image/*,application/pdf" multiple></div>
     <button class="btn big">Enregistrer</button></form>`);
-  const sync = () => { $('#fo').hidden = !FOURN.includes($('#ty').value); };
+  const sync = () => { $('#fo').hidden = !FOURN.includes($('#ty').value); $('#sgw').hidden = $('#ty').value !== 'sortie'; };
   $('#ty').onchange = sync; sync();
+  const getSig = initSig();
   $('#f').onsubmit = async e => {
     e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
     try {
       const type = $('#ty').value, paths = [];
       for (const f of $('#ph').files) paths.push(await upload(f, GER.includes(type) ? 'devis-gerants' : 'or-fichiers', en.n_or));
+      if (type === 'sortie'){ const sg = await getSig(); if (sg) paths.push(await upload(sg, 'or-fichiers', en.n_or, 'signature_')); }
       const row = {type, entree_id:en.id, matcop:$('#txt').value.trim()||null, qte:parseFloat($('#qte').value)||1, unite:$('#un').value, pieces_jointes:paths};
       if (FOURN.includes(type)){ row.societe_id = $('#fs').value || null; row.pu_achat = $('#pu').value ? parseFloat($('#pu').value) : null; }
       if ($('#et').value) row.etat = $('#et').value;
