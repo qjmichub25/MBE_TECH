@@ -32,6 +32,11 @@ label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
 .chk{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:16px;color:var(--tx)}
 input[type=checkbox]{width:22px;min-height:22px;flex:none}
 select.et{width:auto;min-height:36px;font-size:14px;margin-top:6px}
+.btn.ed{min-height:36px;font-size:14px;margin:6px 0 0 8px}
+.cb{position:relative}
+.dd{position:absolute;left:0;right:0;top:100%;z-index:6;background:var(--card);border:1px solid var(--bd);border-radius:10px;max-height:260px;overflow:auto;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.op{padding:12px;border-bottom:1px solid var(--bd);cursor:pointer}
+.op.new{color:var(--ac);font-weight:600}
 canvas#sg{width:100%;height:160px;background:#fff;border:1px solid var(--bd);border-radius:10px;touch-action:none;display:block;margin-bottom:6px}
 video{width:100%;max-height:55vh;object-fit:cover;border-radius:12px;background:#000}
 #toast{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));padding:12px;border-radius:10px;background:var(--ok);color:#fff;display:none;z-index:9}
@@ -49,12 +54,12 @@ const SB_KEY = 'sb_publishable_-Eokc1JGe4TKmXohcalAPw_wO9JdHZ6'; // clé publiqu
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
 const TYPES = {entree:`◀️ Entrée`,diagnostic:`🩺 Diagnostic`,nettoyage:`🪣 Nettoyage`,demontage:`🪛 Démontage`,reparation:`🪛 Réparation`,remontage:`🪛 Remontage`,recablage:`🪢 Recâblage`,dp:`📞 Demande de prix`,ha:`🛒 Achat composants`,prestation:`✨ Prestation`,sortie:`▶️ Sortie`,devis:`Devis`,acceptation:`🤝 Accord client`};
-const ETATS = {besoin:`🎯 Besoin`,en_cours:`⚙️ En cours`,envoye:`Envoyé`,attente_client:`⌛ Attente client`,attente_fournisseur:`⌛ Attente fournisseur`,fait:`✅ Fait`};
+const ETATS = {besoin:`🎯 Besoin`,en_cours:`⚙️ En cours`,envoye:`🚀 Envoyé`,attente_client:`⌛ Attente client`,attente_fournisseur:`⌛ Attente fournisseur`,fait:`✅ Fait`};
 const BESOINS = {nettoyage:`🎯🪣 Nettoyage`,diagnostic:`🎯🩺 Diagnostic`,reparation:`🎯🪛 Réparation`,pieces:`🎯🔩 Pièces détachées`};
 const etOpts = cur => `<option value="">— état —</option>` + Object.entries(ETATS).map(([k,v]) => `<option value="${k}"${k===cur?' selected':''}>${v}</option>`).join('');
 const UNITES = {unitaire:`unité`,m:`m`,km:`km`,hr:`h`};
 const FOURN = ['dp','ha'], GER = ['devis','acceptation'];
-let me, soc = [], backFn = null;
+let me, soc = [], ctc = [], backFn = null;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -62,6 +67,7 @@ const view = h => { $('#app').innerHTML = h; window.scrollTo(0,0); };
 const fmt = d => new Date(d).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'});
 const orn = n => `OR-${String(n).padStart(6,'0')}`;
 const socName = id => (soc.find(s => s.id === id) || {}).nom || '';
+const ctName = id => { const c = ctc.find(x => x.id === id); return c ? `${c.prenom || ''} ${c.nom}`.trim() : ''; };
 const bucketOf = r => GER.includes(r.type) ? 'devis-gerants' : 'or-fichiers';
 function toast(m, err){ const t=$('#toast'); t.textContent=m; t.className=err?'err':''; t.style.display='block'; clearTimeout(toast.t); toast.t=setTimeout(()=>t.style.display='none', err?6000:2500); }
 function bar(title, back, right=''){ backFn = back; return `<header class="bar">${back?`<button class="btn sec" id="back" aria-label="Retour">←</button>`:''}<h1>${esc(title)}</h1>${right}</header>`; }
@@ -84,7 +90,8 @@ async function enter(){
   const {data, error} = await sb.from('profils').select('initiales,role').eq('id', user.id).single();
   if (error || !data){ toast(`Compte sans profil : contactez l’administrateur.`, 1); await sb.auth.signOut(); return; }
   me = {id:user.id, ...data};
-  const r = await sb.from('t_societe').select('id,nom,typologie').order('nom'); soc = r.data || [];
+  const [r, rc] = await Promise.all([sb.from('t_societe').select('id,nom,typologie').order('nom'), sb.from('t_contact').select('id,prenom,nom,societe_id').order('nom')]);
+  soc = r.data || []; ctc = rc.data || [];
   home();
 }
 
@@ -155,7 +162,7 @@ const thumbs = (r, m) => {
     return /\.pdf$/i.test(p) ? `<a class="tag" href="${esc(u)}" target="_blank" rel="noopener">PDF</a>` : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="" loading="lazy"></a>`; }).join('');
   return t ? `<div class="thumbs">${t}</div>` : '';
 };
-const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.type==='ha'&&r.pu_achat==null?` <span class="tag">⚠️ prix d’achat manquant</span>`:''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
+const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.type==='ha'&&r.pu_achat==null?` <span class="tag">⚠️ prix d’achat manquant</span>`:''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select><button class="btn sec ed" data-id="${r.id}">Modifier</button>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.contact_id?` · ${esc(ctName(r.contact_id))}`:''}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
 
 async function openOR(n){
   const {data:rows, error} = await sb.from('t_or').select('*').eq('n_or',n).order('date_op');
@@ -163,11 +170,13 @@ async function openOR(n){
   const en = (rows||[]).find(r => r.type === 'entree');
   if (!en) return toast(`OR introuvable`, 1);
   const m = await urls(rows);
-  view(bar(orn(n), home) + `<div class="pad"><div class="card"><b>${esc(socName(en.societe_id))}</b><div>${esc(en.matcop||'')}</div><div class="mut">${fmt(en.date_op)}${en.id_mat?` · ${esc(en.id_mat)}`:''} · ${esc(en.qui||'')}</div>${(en.besoins||[]).map(b => ` <span class="tag">${BESOINS[b]||b}</span>`).join('')}${thumbs(en,m)}</div>
+  view(bar(orn(n), home) + `<div class="pad"><div class="card"><b>${esc(socName(en.societe_id))}</b>${en.contact_id ? ` · ${esc(ctName(en.contact_id))}` : ''}<div>${esc(en.matcop||'')}</div><div class="mut">${fmt(en.date_op)}${en.id_mat?` · ${esc(en.id_mat)}`:''} · ${esc(en.qui||'')}</div>${(en.besoins||[]).map(b => ` <span class="tag">${BESOINS[b]||b}</span>`).join('')}${thumbs(en,m)}<button class="btn sec ed" id="edE">Modifier</button></div>
     <button class="btn big" id="add">Ajouter une ligne</button>
     ${en.id_mat?`<button class="btn sec big" id="his">Historique du matériel</button>`:''}
     <h2>Lignes</h2>${rows.filter(r => r !== en).map(r => line(r,m)).join('') || `<p class="mut">Aucune ligne.</p>`}</div>`);
   $('#add').onclick = () => addLine(en);
+  $('#edE').onclick = () => neuf(en.id_mat || '', en);
+  document.querySelectorAll('button.ed[data-id]').forEach(b => b.onclick = () => addLine(en, rows.find(x => x.id === b.dataset.id)));
   document.querySelectorAll('select.et').forEach(sel => sel.onchange = async () => {
     const {error} = await sb.from('t_or').update({etat: sel.value || null}).eq('id', sel.dataset.id);
     toast(error ? error.message : `État mis à jour`, !!error);
@@ -203,6 +212,46 @@ async function upload(file, bucket, n, pre=''){
   return path;
 }
 
+/* ---------- Recherche + création à la volée (société → contact) ---------- */
+const cb = (id, ph) => `<div class="cb" id="${id}"><input autocomplete="off" placeholder="${ph}"><div class="dd" hidden></div></div>`;
+function combo(box, o){
+  const inp = box.querySelector('input'), dd = box.querySelector('.dd'); let val = '';
+  const nz = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const put = it => { val = it ? it.id : ''; inp.value = it ? it.label : ''; dd.hidden = true; o.change(val); };
+  const show = () => {
+    const q = nz(inp.value.trim()), all = o.items(), txt = inp.value.trim();
+    const hit = all.filter(i => !q || nz(i.label + ' ' + (i.sub || '')).includes(q)).slice(0, 8);
+    dd.innerHTML = hit.map(i => `<div class="op" data-id="${i.id}">${esc(i.label)}${i.sub ? ` <span class="mut">${esc(i.sub)}</span>` : ''}</div>`).join('')
+      + (q && !all.some(i => nz(i.label) === q) ? `<div class="op new" data-new="1">＋ Créer « ${esc(txt)} »</div>` : '');
+    dd.hidden = !dd.innerHTML;
+  };
+  inp.oninput = () => { if (val){ val = ''; o.change(''); } show(); };
+  inp.onfocus = show;
+  inp.onblur = () => setTimeout(() => { dd.hidden = true; }, 250);
+  dd.onclick = async e => {
+    const el = e.target.closest('.op'); if (!el) return;
+    if (!el.dataset.new) return put(o.items().find(i => i.id === el.dataset.id));
+    try { put(await o.make(inp.value.trim())); } catch (err){ toast(err.message || String(err), 1); }
+  };
+  return { val: () => val, set: id => put(o.items().find(i => i.id === id)),
+           get: () => { if (!val){ const q = nz(inp.value.trim()), it = q && o.items().find(i => nz(i.label) === q); if (it) put(it); } return val; } };
+}
+function pair(idS, idC, kind){
+  let sp, cp;
+  sp = combo($(idS), {
+    items: () => soc.map(s => ({id:s.id, label:s.nom})),
+    make: async t => { const {data, error} = await sb.from('t_societe').insert({nom:t, typologie:[kind]}).select('id,nom,typologie').single(); if (error) throw error; soc.push(data); return {id:data.id, label:data.nom}; },
+    change: id => { const c = ctc.find(x => x.id === cp.val()); if (c && id && c.societe_id !== id) cp.set(''); }
+  });
+  cp = combo($(idC), {
+    items: () => { const sid = sp.val(); return ctc.filter(c => !sid || c.societe_id === sid).map(c => ({id:c.id, label:`${c.prenom || ''} ${c.nom}`.trim(), sub: sid ? '' : socName(c.societe_id)})); },
+    make: async t => { const [a, ...b] = t.split(/\s+/), row = b.length ? {prenom:a, nom:b.join(' ')} : {nom:a}; row.societe_id = sp.val() || null;
+      const {data, error} = await sb.from('t_contact').insert(row).select('id,prenom,nom,societe_id').single(); if (error) throw error; ctc.push(data); return {id:data.id, label:`${data.prenom || ''} ${data.nom}`.trim()}; },
+    change: id => { const c = ctc.find(x => x.id === id); if (c && c.societe_id && !sp.val()) sp.set(c.societe_id); }
+  });
+  return {s:sp, c:cp};
+}
+
 /* ---------- Signature ---------- */
 function initSig(){
   const c = $('#sg'), x = c.getContext('2d'); let d = false, has = false;
@@ -220,38 +269,51 @@ function initSig(){
 }
 
 /* ---------- Nouvelle entrée ---------- */
-function neuf(code){
-  view(bar(`Nouvelle entrée`, home) + `<form id="f" class="pad"><div class="card"><label for="code">Code QR</label><input id="code" value="${esc(code)}" placeholder="facultatif"><label for="so">Société</label><select id="so" required><option value="">— choisir —</option>${soc.map(s => `<option value="${s.id}">${esc(s.nom)}</option>`).join('')}</select><label for="txt">Matériel</label><textarea id="txt" rows="3" placeholder="Ex. Ampli Crest 9001, ventilation bruyante" required></textarea><label>Besoins du client</label>${Object.entries(BESOINS).map(([k,v]) => `<label class="chk"><input type="checkbox" name="bs" value="${k}"> ${v}</label>`).join('')}<label for="ph">Photos</label><input id="ph" type="file" accept="image/*" multiple><label>Signature du client (dépôt)</label><canvas id="sg"></canvas><button type="button" class="btn sec" id="sgc">Effacer</button></div><button class="btn big">Créer l’entrée</button></form>`);
+function neuf(code, en){
+  view(bar(en ? `Modifier l’entrée` : `Nouvelle entrée`, en ? () => openOR(en.n_or) : home) + `<form id="f" class="pad"><div class="card"><label for="code">Code QR</label><input id="code" value="${esc(code)}" placeholder="facultatif"><label>Société (client)</label>${cb('pS', `Rechercher ou créer une société…`)}<label>Contact</label>${cb('pC', `Rechercher ou créer un contact…`)}<label for="txt">Matériel</label><textarea id="txt" rows="3" placeholder="Ex. Ampli Crest 9001, ventilation bruyante" required></textarea><label>Besoins du client</label>${Object.entries(BESOINS).map(([k,v]) => `<label class="chk"><input type="checkbox" name="bs" value="${k}"> ${v}</label>`).join('')}<label for="ph">Photos</label><input id="ph" type="file" accept="image/*" multiple><label>Signature du client (dépôt)</label><canvas id="sg"></canvas><button type="button" class="btn sec" id="sgc">Effacer</button></div><button class="btn big">Créer l’entrée</button></form>`);
   const getSig = initSig();
+  const P = pair('#pS', '#pC', 'client');
+  if (en){
+    $('#code').value = en.id_mat || ''; P.s.set(en.societe_id); P.c.set(en.contact_id); $('#txt').value = en.matcop || '';
+    (en.besoins || []).forEach(b => { const i = document.querySelector(`input[name=bs][value=${b}]`); if (i) i.checked = true; });
+  }
   $('#f').onsubmit = async e => {
     e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
     try {
-      const {data, error} = await sb.from('t_or').insert({type:'entree', id_mat:$('#code').value.trim()||null, societe_id:$('#so').value, matcop:$('#txt').value.trim(), besoins:[...document.querySelectorAll('input[name=bs]:checked')].map(i => i.value)}).select('id,n_or').single();
+      if (!P.s.get()) throw new Error(`Choisissez ou créez une société`);
+      const body = {id_mat:$('#code').value.trim()||null, societe_id:P.s.get(), contact_id:P.c.get() || null, matcop:$('#txt').value.trim(), besoins:[...document.querySelectorAll('input[name=bs]:checked')].map(i => i.value)};
+      const {data, error} = en ? await sb.from('t_or').update(body).eq('id', en.id).select('id,n_or').single()
+                               : await sb.from('t_or').insert({type:'entree', ...body}).select('id,n_or').single();
       if (error) throw error;
-      const files = [...$('#ph').files], sg = await getSig(), paths = [];
+      const files = [...$('#ph').files], sg = await getSig(), paths = en ? [...(en.pieces_jointes || [])] : [];
       for (const f of files) paths.push(await upload(f, 'or-fichiers', data.n_or));
       if (sg) paths.push(await upload(sg, 'or-fichiers', data.n_or, 'signature_'));
       if (paths.length){
         const {error:e2} = await sb.from('t_or').update({pieces_jointes:paths}).eq('id', data.id); if (e2) throw e2;
       }
-      toast(`Entrée créée : ${orn(data.n_or)}`); openOR(data.n_or);
+      toast(en ? `Entrée modifiée` : `Entrée créée : ${orn(data.n_or)}`); openOR(data.n_or);
     } catch(err){ toast(err.message || String(err), 1); b.disabled = false; }
   };
 }
 
 /* ---------- Ajouter une ligne ---------- */
-function addLine(en){
+function addLine(en, r){
   const types = Object.keys(TYPES).filter(t => t !== 'entree' && (me.role === 'gerant' || !GER.includes(t)));
   const fourn = soc.filter(s => (s.typologie||[]).includes('fournisseur'));
-  view(bar(`Ligne · ${orn(en.n_or)}`, () => openOR(en.n_or)) + `<form id="f" class="pad"><div class="card">
+  view(bar(`${r ? `Modifier` : `Ligne`} · ${orn(en.n_or)}`, () => openOR(en.n_or)) + `<form id="f" class="pad"><div class="card">
     <label for="ty">Type</label><select id="ty">${types.map(t => `<option value="${t}">${TYPES[t]}</option>`).join('')}</select>
     <label for="txt">Description</label><textarea id="txt" rows="3"></textarea>
     <div class="row"><div><label for="qte">Quantité</label><input id="qte" type="number" step="0.01" min="0" value="1" inputmode="decimal"></div><div><label for="un">Unité</label><select id="un">${Object.entries(UNITES).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select></div></div>
-    <div id="fo" hidden><label for="fs">Fournisseur</label><select id="fs"><option value="">—</option>${fourn.map(s => `<option value="${s.id}">${esc(s.nom)}</option>`).join('')}</select><label for="pu">Prix d’achat HT (€)</label><input id="pu" type="number" step="0.01" min="0" inputmode="decimal"></div>
+    <div id="fo" hidden><label>Fournisseur</label>${cb('fs', `Rechercher ou créer un fournisseur…`)}<label>Contact fournisseur</label>${cb('fc', `Rechercher ou créer un contact…`)}<label for="pu">Prix d’achat HT (€)</label><input id="pu" type="number" step="0.01" min="0" inputmode="decimal"></div>
     <div id="sgw" hidden><label>Signature du client (récupération)</label><canvas id="sg"></canvas><button type="button" class="btn sec" id="sgc">Effacer</button></div>
     <label for="et">État</label><select id="et"><option value="">—</option>${Object.entries(ETATS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select>
     <label for="ph">Photos / documents</label><input id="ph" type="file" accept="image/*,application/pdf" multiple></div>
     <button class="btn big">Enregistrer</button></form>`);
+  const P = pair('#fs', '#fc', 'fournisseur');
+  if (r){
+    $('#ty').value = r.type; $('#ty').disabled = true; $('#txt').value = r.matcop || ''; $('#qte').value = r.qte; $('#un').value = r.unite;
+    P.s.set(r.societe_id); P.c.set(r.contact_id); $('#pu').value = r.pu_achat ?? ''; $('#et').value = r.etat || '';
+  }
   const sync = () => { $('#fo').hidden = !FOURN.includes($('#ty').value); $('#sgw').hidden = $('#ty').value !== 'sortie'; };
   $('#ty').onchange = sync; sync();
   const getSig = initSig();
@@ -261,10 +323,10 @@ function addLine(en){
       const type = $('#ty').value, paths = [];
       for (const f of $('#ph').files) paths.push(await upload(f, GER.includes(type) ? 'devis-gerants' : 'or-fichiers', en.n_or));
       if (type === 'sortie'){ const sg = await getSig(); if (sg) paths.push(await upload(sg, 'or-fichiers', en.n_or, 'signature_')); }
-      const row = {type, entree_id:en.id, matcop:$('#txt').value.trim()||null, qte:parseFloat($('#qte').value)||1, unite:$('#un').value, pieces_jointes:paths};
-      if (FOURN.includes(type)){ row.societe_id = $('#fs').value || null; row.pu_achat = $('#pu').value ? parseFloat($('#pu').value) : null; }
-      if ($('#et').value) row.etat = $('#et').value;
-      const {error} = await sb.from('t_or').insert(row);
+      const row = {type, entree_id:en.id, matcop:$('#txt').value.trim()||null, qte:parseFloat($('#qte').value)||1, unite:$('#un').value, pieces_jointes:[...(r ? r.pieces_jointes || [] : []), ...paths]};
+      if (FOURN.includes(type)){ row.societe_id = P.s.get() || null; row.contact_id = P.c.get() || null; row.pu_achat = $('#pu').value ? parseFloat($('#pu').value) : null; }
+      if (r || $('#et').value) row.etat = $('#et').value || null;
+      const {error} = r ? await sb.from('t_or').update(row).eq('id', r.id) : await sb.from('t_or').insert(row);
       if (error) throw error;
       toast(`Ligne enregistrée`); openOR(en.n_or);
     } catch(err){ toast(err.message || String(err), 1); b.disabled = false; }
