@@ -37,6 +37,9 @@ select.et{width:auto;min-height:36px;font-size:14px;margin-top:6px}
 .dd{position:absolute;left:0;right:0;top:100%;z-index:6;background:var(--card);border:1px solid var(--bd);border-radius:10px;max-height:260px;overflow:auto;box-shadow:0 6px 18px rgba(0,0,0,.25)}
 .op{padding:12px;border-bottom:1px solid var(--bd);cursor:pointer}
 .op.new{color:var(--ac);font-weight:600}
+#lb{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#lb img{max-width:100%;max-height:100%;object-fit:contain}
+#lbx{position:absolute;top:calc(12px + env(safe-area-inset-top));right:12px}
 canvas#sg{width:100%;height:160px;background:#fff;border:1px solid var(--bd);border-radius:10px;touch-action:none;display:block;margin-bottom:6px}
 video{width:100%;max-height:55vh;object-fit:cover;border-radius:12px;background:#000}
 #toast{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));padding:12px;border-radius:10px;background:var(--ok);color:#fff;display:none;z-index:9}
@@ -71,7 +74,18 @@ const ctName = id => { const c = ctc.find(x => x.id === id); return c ? `${c.pre
 const bucketOf = r => GER.includes(r.type) ? 'devis-gerants' : 'or-fichiers';
 function toast(m, err){ const t=$('#toast'); t.textContent=m; t.className=err?'err':''; t.style.display='block'; clearTimeout(toast.t); toast.t=setTimeout(()=>t.style.display='none', err?6000:2500); }
 function bar(title, back, right=''){ backFn = back; return `<header class="bar">${back?`<button class="btn sec" id="back" aria-label="Retour">←</button>`:''}<h1>${esc(title)}</h1>${right}</header>`; }
-document.addEventListener('click', e => { if (e.target.closest('#back') && backFn) backFn(); });
+document.addEventListener('click', e => {
+  if (e.target.closest('#back') && backFn) backFn();
+  const a = e.target.closest('a.ph'); if (a){ e.preventDefault(); openPhoto(a.dataset.b, a.dataset.p); }
+});
+async function openPhoto(b, p){
+  const {data, error} = await sb.storage.from(b).createSignedUrl(p, 600);
+  if (error) return toast(error.message, 1);
+  const u = esc(data.signedUrl), o = document.createElement('div'); o.id = 'lb';
+  o.innerHTML = `<button class="btn" id="lbx" aria-label="Fermer">✕</button>` + (/\.pdf$/i.test(p) ? `<a class="btn" href="${u}" target="_blank" rel="noopener">Ouvrir le PDF</a>` : `<img src="${u}" alt="">`);
+  o.onclick = e => { if (e.target.tagName !== 'A') o.remove(); };
+  document.body.appendChild(o);
+}
 
 /* ---------- Connexion ---------- */
 function showLogin(){
@@ -159,7 +173,8 @@ async function urls(rows){
 }
 const thumbs = (r, m) => {
   const t = (r.pieces_jointes||[]).map(p => { const u = m[bucketOf(r)+'/'+p]; if (!u) return '';
-    return /\.pdf$/i.test(p) ? `<a class="tag" href="${esc(u)}" target="_blank" rel="noopener">PDF</a>` : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="" loading="lazy"></a>`; }).join('');
+    const d = `data-b="${bucketOf(r)}" data-p="${esc(p)}"`;
+    return /\.pdf$/i.test(p) ? `<a class="tag ph" href="#" ${d}>PDF</a>` : `<a class="ph" href="#" ${d}><img src="${esc(u)}" alt="" loading="lazy"></a>`; }).join('');
   return t ? `<div class="thumbs">${t}</div>` : '';
 };
 const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.type==='ha'&&r.pu_achat==null?` <span class="tag">⚠️ prix d’achat manquant</span>`:''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select><button class="btn sec ed" data-id="${r.id}">Modifier</button>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.contact_id?` · ${esc(ctName(r.contact_id))}`:''}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
