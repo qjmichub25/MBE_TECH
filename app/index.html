@@ -77,6 +77,7 @@ function bar(title, back, right=''){ backFn = back; return `<header class="bar">
 document.addEventListener('click', e => {
   if (e.target.closest('#back') && backFn) backFn();
   const a = e.target.closest('a.ph'); if (a){ e.preventDefault(); openPhoto(a.dataset.b, a.dataset.p); }
+  const dc = e.target.closest('a.dc'); if (dc){ e.preventDefault(); openDoc(dc.dataset.d); }
 });
 async function openPhoto(b, p){
   const {data, error} = await sb.storage.from(b).createSignedUrl(p, 600);
@@ -115,16 +116,22 @@ async function home(){
     `<div class="pad"><button class="btn big" id="scan">Scanner un QR</button>
      <div class="card"><label for="q">Code matériel ou n° d’OR</label><div class="row"><input id="q" placeholder="MAT-0001 ou 2"><button class="btn" id="go">OK</button></div></div>
      <button class="btn sec big" id="neu">Nouvelle entrée sans QR</button>
-     <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div></div>`);
+     <button class="btn sec big" id="cmd">À commander / affecter</button>
+     <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div><h2>Documents ouverts</h2><div id="docs" class="mut"></div></div>`);
   $('#out').onclick = () => sb.auth.signOut();
   $('#scan').onclick = scan;
   $('#neu').onclick = () => neuf('');
-  $('#go').onclick = () => { const v = $('#q').value.trim(); if (!v) return; /^\d+$/.test(v) ? openOR(+v) : lookup(v); };
+  $('#cmd').onclick = aCommander;
+  $('#go').onclick = async () => { const v = $('#q').value.trim(); if (!v) return; if (/^\d+$/.test(v)) openOR(+v); else if (!(await openDocByNum(v))) lookup(v); };
   const {data, error} = await sb.from('v_or_en_cours').select('n_or,date_op,id_mat,matcop,societe_id').order('date_op',{ascending:false});
   if (error) return $('#list').textContent = error.message;
   $('#list').className = '';
   $('#list').innerHTML = data.length ? data.map(r => `<div class="card item" data-n="${r.n_or}"><b>${orn(r.n_or)}</b> <span class="tag">${esc(socName(r.societe_id))}</span><div>${esc(r.matcop||'')}</div><div class="mut">${fmt(r.date_op)}${r.id_mat?` · ${esc(r.id_mat)}`:''}</div></div>`).join('') : `<p class="mut">Aucun OR en cours.</p>`;
   $('#list').onclick = e => { const c = e.target.closest('[data-n]'); if (c) openOR(+c.dataset.n); };
+  const {data:od} = await sb.from('t_doc').select('id,numero,societe_id,date_doc').eq('clos',false).order('date_doc',{ascending:false}).limit(10);
+  $('#docs').className = '';
+  $('#docs').innerHTML = (od||[]).map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span> <span class="mut">${fmt(d.date_doc)}</span></div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`;
+  $('#docs').onclick = e => { const c = e.target.closest('[data-d]'); if (c) openDoc(c.dataset.d); };
 }
 
 /* ---------- Scan et recherche par code ---------- */
@@ -177,10 +184,10 @@ const thumbs = (r, m) => {
     return /\.pdf$/i.test(p) ? `<a class="tag ph" href="#" ${d}>PDF</a>` : `<a class="ph" href="#" ${d}><img src="${esc(u)}" alt="" loading="lazy"></a>`; }).join('');
   return t ? `<div class="thumbs">${t}</div>` : '';
 };
-const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.type==='ha'&&r.pu_achat==null?` <span class="tag">⚠️ prix d’achat manquant</span>`:''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select><button class="btn sec ed" data-id="${r.id}">Modifier</button>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.contact_id?` · ${esc(ctName(r.contact_id))}`:''}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
+const line = (r, m) => `<div class="card"><div><b>${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span>${r.type==='ha'&&r.pu_achat==null?` <span class="tag">⚠️ prix d’achat manquant</span>`:''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select><button class="btn sec ed" data-id="${r.id}">Modifier</button>${r.matcop?`<div>${esc(r.matcop)}</div>`:''}<div class="mut">${r.qte} ${UNITES[r.unite]||''}${(r.doc?r.doc.societe_id:r.societe_id)?` · ${esc(socName(r.doc?r.doc.societe_id:r.societe_id))}`:''}${(r.doc?r.doc.contact_id:r.contact_id)?` · ${esc(ctName(r.doc?r.doc.contact_id:r.contact_id))}`:''}${r.doc?` <a class="tag dc" href="#" data-d="${r.doc_id}">${esc(r.doc.numero)}</a>`:(['dp','ha','devis'].includes(r.type)?` <span class="tag">non affectée</span>`:'')}${r.pu_achat!=null?` · achat ${r.pu_achat} € HT`:''}</div>${thumbs(r,m)}</div>`;
 
 async function openOR(n){
-  const {data:rows, error} = await sb.from('t_or').select('*').eq('n_or',n).order('date_op');
+  const {data:rows, error} = await sb.from('t_or').select('*, doc:t_doc(numero,societe_id,contact_id)').eq('n_or',n).order('date_op');
   if (error) return toast(error.message, 1);
   const en = (rows||[]).find(r => r.type === 'entree');
   if (!en) return toast(`OR introuvable`, 1);
@@ -203,6 +210,78 @@ async function histo(code, propose){
   if (error) return toast(error.message, 1);
   view(bar(`Historique ${code}`, home) + `<div class="pad">${propose?`<p>Matériel connu, aucun OR en cours.</p><button class="btn big" id="neu">Nouvelle entrée</button>`:''}${(data||[]).map(r => `<div class="card"><b>${orn(r.n_or)} · ${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span><div>${esc(r.matcop||'')}</div></div>`).join('') || `<p class="mut">Aucun historique.</p>`}</div>`);
   if (propose) $('#neu').onclick = () => neuf(code);
+}
+
+/* ---------- Documents DP / HA / DE ---------- */
+const DOCT = {dp:`📞 Demande de prix`, ha:`🛒 Commande d’achat`, devis:`Devis client`};
+async function openDocByNum(txt){
+  const m = String(txt).trim().match(/^(DP|HA|DE)\s*0*(\d+)$/i); if (!m) return false;
+  const type = {DP:'dp', HA:'ha', DE:'devis'}[m[1].toUpperCase()];
+  const {data} = await sb.from('t_doc').select('id').eq('type', type).eq('num', +m[2]).limit(1);
+  if (data && data.length) openDoc(data[0].id); else toast(`Document introuvable`, 1);
+  return true;
+}
+async function aCommander(){
+  const {data, error} = await sb.from('v_lignes_sans_doc').select('id,n_or,type,matcop,qte,unite,societe_id,contact_id,pu_achat').order('n_or');
+  if (error) return toast(error.message, 1);
+  view(bar(`À commander`, home) + `<div class="pad"><p class="mut">Cochez des lignes du même type, puis affectez-les à un document.</p><div id="ls">${data.length ? data.map(r => `<label class="card chk"><input type="checkbox" value="${r.id}"><div><b>${TYPES[r.type]}</b> <span class="tag">${orn(r.n_or)}</span><div>${esc(r.matcop||'')}</div><div class="mut">${r.qte} ${UNITES[r.unite]||''}${r.societe_id?` · ${esc(socName(r.societe_id))}`:''}${r.pu_achat!=null?` · ${r.pu_achat} € HT`:''}</div></div></label>`).join('') : `<p class="mut">Rien à affecter.</p>`}</div>${data.length ? `<button class="btn big" id="aff">Affecter à un document</button>` : ''}</div>`);
+  if (!data.length) return;
+  $('#aff').onclick = () => {
+    const sel = [...document.querySelectorAll('#ls input:checked')].map(i => data.find(r => r.id === i.value));
+    if (!sel.length) return toast(`Cochez au moins une ligne`, 1);
+    if (new Set(sel.map(r => r.type)).size > 1) return toast(`Choisissez des lignes du même type`, 1);
+    affecter(sel);
+  };
+}
+async function affecter(sel){
+  const type = sel[0].type, same = k => sel.every(r => r[k] === sel[0][k]);
+  const soc0 = same('societe_id') ? sel[0].societe_id : null, ct0 = soc0 && same('contact_id') ? sel[0].contact_id : null;
+  const {data:docs, error} = await sb.from('t_doc').select('id,numero,societe_id,date_doc').eq('type', type).eq('clos', false).order('date_doc', {ascending:false});
+  if (error) return toast(error.message, 1);
+  docs.sort((a, b) => (b.societe_id === soc0) - (a.societe_id === soc0));
+  view(bar(`Affecter ${sel.length} ligne(s)`, aCommander) + `<div class="pad"><h2>Document ouvert</h2><div id="od">${docs.map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span><div class="mut">${fmt(d.date_doc)}</div></div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`}</div>
+    <h2>Nouveau document</h2><div class="card"><label>Société</label>${cb('nS', `Rechercher ou créer…`)}<label>Contact</label>${cb('nC', `Rechercher ou créer…`)}<button class="btn big" id="nw">Créer et affecter</button></div></div>`);
+  const P = pair('#nS', '#nC', type === 'devis' ? 'client' : 'fournisseur'); P.s.set(soc0); P.c.set(ct0);
+  const go = async id => {
+    const {error} = await sb.from('t_or').update({doc_id:id}).in('id', sel.map(r => r.id));
+    if (error) return toast(error.message, 1);
+    toast(`Lignes affectées`); openDoc(id);
+  };
+  $('#od').onclick = e => {
+    const c = e.target.closest('[data-d]'); if (!c) return;
+    const d = docs.find(x => x.id === c.dataset.d);
+    if (sel.some(r => r.societe_id && d.societe_id && r.societe_id !== d.societe_id) && !confirm(`Le fournisseur de certaines lignes diffère de celui du document. Affecter quand même ?`)) return;
+    go(d.id);
+  };
+  $('#nw').onclick = async () => {
+    const sid = P.s.get(); if (!sid) return toast(`Choisissez ou créez une société`, 1);
+    const {data, error} = await sb.from('t_doc').insert({type, societe_id:sid, contact_id:P.c.get() || null}).select('id,numero').single();
+    if (error) return toast(error.message, 1);
+    toast(`${data.numero} créé`); go(data.id);
+  };
+}
+async function openDoc(id){
+  const [{data:d, error}, {data:ls}] = await Promise.all([
+    sb.from('t_doc').select('*').eq('id', id).single(),
+    sb.from('t_or').select('id,n_or,type,matcop,qte,unite,pu_achat,etat').eq('doc_id', id).order('n_or')]);
+  if (error) return toast(error.message, 1);
+  const lines = ls || [], byOr = {}; lines.forEach(r => (byOr[r.n_or] = byOr[r.n_or] || []).push(r));
+  const tot = lines.reduce((a, r) => a + (r.pu_achat != null ? r.qte * r.pu_achat : 0), 0);
+  view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>
+    <label>Société</label>${cb('dS', `Rechercher ou créer…`)}<label>Contact</label>${cb('dC', `Rechercher ou créer…`)}
+    <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Notes</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
+    <button class="btn" id="sv" style="margin-top:8px">Enregistrer l’en-tête</button></div>
+    ${d.type !== 'devis' ? `<p><b>Total achat HT :</b> ${tot.toFixed(2)} € <span class="mut">(lignes sans prix exclues)</span></p>` : ''}
+    ${Object.keys(byOr).map(n => `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}</div>${d.clos ? '' : `<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
+    <button class="btn ${d.clos ? 'sec ' : ''}big" id="cl">${d.clos ? `Rouvrir` : `Clore le document`}</button></div>`);
+  const P = pair('#dS', '#dC', d.type === 'devis' ? 'client' : 'fournisseur'); P.s.set(d.societe_id); P.c.set(d.contact_id);
+  $('#sv').onclick = async () => {
+    const {error} = await sb.from('t_doc').update({societe_id:P.s.get() || null, contact_id:P.c.get() || null, ref_externe:$('#rx').value.trim() || null, notes:$('#nt').value.trim() || null}).eq('id', id);
+    toast(error ? error.message : `En-tête enregistré`, !!error);
+  };
+  $('#cl').onclick = async () => { const {error} = await sb.from('t_doc').update({clos:!d.clos}).eq('id', id); if (error) return toast(error.message, 1); openDoc(id); };
+  document.querySelectorAll('.rm').forEach(b => b.onclick = async () => { const {error} = await sb.from('t_or').update({doc_id:null}).eq('id', b.dataset.id); if (error) return toast(error.message, 1); openDoc(id); });
+  document.querySelectorAll('.go').forEach(b => b.onclick = () => openOR(+b.dataset.n));
 }
 
 /* ---------- Photos ---------- */
