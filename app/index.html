@@ -105,8 +105,7 @@ async function enter(){
   const {data, error} = await sb.from('profils').select('initiales,role').eq('id', user.id).single();
   if (error || !data){ toast(`Compte sans profil : contactez l’administrateur.`, 1); await sb.auth.signOut(); return; }
   me = {id:user.id, ...data};
-  const [r, rc] = await Promise.all([sb.from('t_societe').select('id,nom,typologie').order('nom'), sb.from('t_contact').select('id,prenom,nom,societe_id').order('nom')]);
-  soc = r.data || []; ctc = rc.data || [];
+  await loadRefs();
   home();
 }
 
@@ -117,11 +116,13 @@ async function home(){
      <div class="card"><label for="q">Code matériel ou n° d’OR</label><div class="row"><input id="q" placeholder="MAT-0001 ou 2"><button class="btn" id="go">OK</button></div></div>
      <button class="btn sec big" id="neu">Nouvelle entrée sans QR</button>
      <button class="btn sec big" id="cmd">À commander / affecter</button>
+     <button class="btn sec big" id="scs">Sociétés et contacts</button>
      <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div><h2>Documents ouverts</h2><div id="docs" class="mut"></div></div>`);
   $('#out').onclick = () => sb.auth.signOut();
   $('#scan').onclick = scan;
   $('#neu').onclick = () => neuf('');
   $('#cmd').onclick = aCommander;
+  $('#scs').onclick = societes;
   $('#go').onclick = async () => { const v = $('#q').value.trim(); if (!v) return; if (/^\d+$/.test(v)) openOR(+v); else if (!(await openDocByNum(v))) lookup(v); };
   const {data, error} = await sb.from('v_or_en_cours').select('n_or,date_op,id_mat,matcop,societe_id').order('date_op',{ascending:false});
   if (error) return $('#list').textContent = error.message;
@@ -210,6 +211,88 @@ async function histo(code, propose){
   if (error) return toast(error.message, 1);
   view(bar(`Historique ${code}`, home) + `<div class="pad">${propose?`<p>Matériel connu, aucun OR en cours.</p><button class="btn big" id="neu">Nouvelle entrée</button>`:''}${(data||[]).map(r => `<div class="card"><b>${orn(r.n_or)} · ${TYPES[r.type]||r.type}</b> <span class="mut">${fmt(r.date_op)} · ${esc(r.qui||'')}</span><div>${esc(r.matcop||'')}</div></div>`).join('') || `<p class="mut">Aucun historique.</p>`}</div>`);
   if (propose) $('#neu').onclick = () => neuf(code);
+}
+
+/* ---------- Sociétés et contacts ---------- */
+async function loadRefs(){
+  const [r, rc] = await Promise.all([sb.from('t_societe').select('id,nom,typologie').order('nom'), sb.from('t_contact').select('id,prenom,nom,societe_id').order('nom')]);
+  soc = r.data || []; ctc = rc.data || [];
+}
+const FJ = ['EURL','SARL','SAS','SASU','EI','SA','Association','Autre'], CIV = ['M.','Mme','Mlle','Mgr','Dr','Me'];
+const TYPS = {client:`Client`, fournisseur:`Fournisseur`, prestataire:`Prestataire`};
+const opts = (arr, cur, blank) => (blank ? `<option value="">—</option>` : '') + arr.map(v => `<option${v === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
+function societes(){
+  view(bar(`Sociétés`, home) + `<div class="pad"><div class="row"><input id="fq" placeholder="Rechercher une société…" autocomplete="off"><button class="btn" id="ns">＋ Nouvelle</button></div><div id="sl"></div></div>`);
+  const nz = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const draw = () => { const q = nz($('#fq').value.trim());
+    $('#sl').innerHTML = soc.filter(x => !q || nz(x.nom).includes(q)).map(x => `<div class="card item" data-s="${x.id}"><b>${esc(x.nom)}</b> ${(x.typologie || []).map(t => `<span class="tag">${TYPS[t] || t}</span>`).join(' ')}</div>`).join('') || `<p class="mut">Aucune société.</p>`; };
+  $('#fq').oninput = draw; draw();
+  $('#sl').onclick = e => { const c = e.target.closest('[data-s]'); if (c) ficheSoc(c.dataset.s); };
+  $('#ns').onclick = () => ficheSoc(null);
+}
+async function ficheSoc(id){
+  let s = {}, cs = [], tarif = '';
+  if (id){
+    const [a, b, c] = await Promise.all([
+      sb.from('t_societe').select('*').eq('id', id).single(),
+      sb.from('t_contact').select('*').eq('societe_id', id).order('nom'),
+      me.role === 'gerant' ? sb.from('t_tarif').select('note').eq('societe_id', id).maybeSingle() : Promise.resolve({data:null})]);
+    if (a.error) return toast(a.error.message, 1);
+    s = a.data; cs = b.data || []; tarif = (c.data && c.data.note) || '';
+  }
+  const ty = s.typologie || [], nomC = c => `${c.civilite || ''} ${c.prenom || ''} ${c.nom}`.trim();
+  const web = s.site_web ? (/^https?:/i.test(s.site_web) ? s.site_web : 'https://' + s.site_web) : '';
+  view(bar(id ? s.nom : `Nouvelle société`, societes) + `<form id="f" class="pad"><div class="card">
+    <label for="nm">Nom</label><input id="nm" value="${esc(s.nom || '')}" required>
+    <label>Type</label>${Object.entries(TYPS).map(([k, v]) => `<label class="chk"><input type="checkbox" name="ty" value="${k}"${ty.includes(k) ? ' checked' : ''}> ${v}</label>`).join('')}
+    <label for="fj">Forme juridique</label><select id="fj">${opts(FJ, s.forme_juridique, true)}</select>
+    <label for="si">SIRET</label><input id="si" value="${esc(s.siret || '')}" inputmode="numeric">
+    <label for="ad">Adresse</label><textarea id="ad" rows="3">${esc(s.adresse_postale || '')}</textarea>
+    <label for="st">Standard${s.standard ? ` · <a href="tel:${esc(s.standard)}">📞 appeler</a>` : ''}</label><input id="st" type="tel" value="${esc(s.standard || '')}">
+    <label for="sw">Site web${web ? ` · <a href="${esc(web)}" target="_blank" rel="noopener">ouvrir</a>` : ''}</label><input id="sw" value="${esc(s.site_web || '')}">
+    ${id ? `<label for="cp">Contact principal</label><select id="cp"><option value="">—</option>${cs.map(c => `<option value="${c.id}"${c.id === s.contact_principal_id ? ' selected' : ''}>${esc(nomC(c))}</option>`).join('')}</select>` : ''}
+    <label for="nt">Notes</label><textarea id="nt" rows="3">${esc(s.notes || '')}</textarea>
+    ${me.role === 'gerant' && id ? `<label for="tf">Tarif : remise, conditions (gérants seulement)</label><textarea id="tf" rows="2">${esc(tarif)}</textarea>` : ''}
+    </div><button class="btn big">Enregistrer</button></form>
+    ${id ? `<div class="pad"><h2>Contacts</h2>${cs.map(c => `<div class="card"><b>${esc(nomC(c))}</b>${c.id === s.contact_principal_id ? ` <span class="tag">principal</span>` : ''}<div class="mut">${c.mobile ? `<a href="tel:${esc(c.mobile)}">📞 ${esc(c.mobile)}</a> ` : ''}${c.courriel ? `<a href="mailto:${esc(c.courriel)}">✉️ ${esc(c.courriel)}</a>` : ''}</div><button class="btn sec ed" data-c="${c.id}">Modifier</button></div>`).join('') || `<p class="mut">Aucun contact.</p>`}<button class="btn sec big" id="nc">＋ Nouveau contact</button></div>` : ''}`);
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
+    try {
+      const nom = $('#nm').value.trim();
+      if (soc.some(x => x.id !== id && x.nom.trim().toLowerCase() === nom.toLowerCase()) && !confirm(`Une société porte déjà ce nom. Enregistrer quand même ?`)){ b.disabled = false; return; }
+      const body = {nom, forme_juridique:$('#fj').value || null, siret:$('#si').value.trim() || null, typologie:[...document.querySelectorAll('input[name=ty]:checked')].map(i => i.value), adresse_postale:$('#ad').value.trim() || null, standard:$('#st').value.trim() || null, site_web:$('#sw').value.trim() || null, notes:$('#nt').value.trim() || null};
+      if (id) body.contact_principal_id = $('#cp').value || null;
+      const {data, error} = id ? await sb.from('t_societe').update(body).eq('id', id).select('id').single() : await sb.from('t_societe').insert(body).select('id').single();
+      if (error) throw error;
+      if (me.role === 'gerant' && id){
+        const note = $('#tf').value.trim();
+        const r = note ? await sb.from('t_tarif').upsert({societe_id:id, note}, {onConflict:'societe_id'}) : await sb.from('t_tarif').delete().eq('societe_id', id);
+        if (r.error) throw r.error;
+      }
+      await loadRefs(); toast(`Société enregistrée`); ficheSoc(data.id);
+    } catch(err){ toast(err.message || String(err), 1); b.disabled = false; }
+  };
+  if (id){
+    $('#nc').onclick = () => ficheContact(id, null);
+    document.querySelectorAll('button[data-c]').forEach(b => b.onclick = () => ficheContact(id, cs.find(c => c.id === b.dataset.c)));
+  }
+}
+function ficheContact(sid, c){
+  c = c || {};
+  view(bar(c.id ? `Modifier le contact` : `Nouveau contact`, () => ficheSoc(sid)) + `<form id="f" class="pad"><div class="card">
+    <label for="ci">Civilité</label><select id="ci">${opts(CIV, c.civilite, true)}</select>
+    <label for="pr">Prénom</label><input id="pr" value="${esc(c.prenom || '')}">
+    <label for="nm">Nom</label><input id="nm" value="${esc(c.nom || '')}" required>
+    <label for="mo">Mobile</label><input id="mo" type="tel" value="${esc(c.mobile || '')}">
+    <label for="cm">E-mail</label><input id="cm" type="email" value="${esc(c.courriel || '')}">
+    <label for="nt">Notes</label><textarea id="nt" rows="3">${esc(c.notes || '')}</textarea></div><button class="btn big">Enregistrer</button></form>`);
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
+    const body = {societe_id:sid, civilite:$('#ci').value || null, prenom:$('#pr').value.trim() || null, nom:$('#nm').value.trim(), mobile:$('#mo').value.trim() || null, courriel:$('#cm').value.trim() || null, notes:$('#nt').value.trim() || null};
+    const {error} = c.id ? await sb.from('t_contact').update(body).eq('id', c.id) : await sb.from('t_contact').insert(body);
+    if (error){ toast(error.message, 1); b.disabled = false; return; }
+    await loadRefs(); toast(`Contact enregistré`); ficheSoc(sid);
+  };
 }
 
 /* ---------- Documents DP / HA / DE ---------- */
