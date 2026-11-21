@@ -301,12 +301,16 @@ function ficheContact(sid, c){
     <label for="nm">Nom</label><input id="nm" value="${esc(c.nom || '')}" required>
     <label for="mo">Mobile</label><input id="mo" type="tel" value="${esc(c.mobile || '')}">
     <label for="cm">E-mail</label><input id="cm" type="email" value="${esc(c.courriel || '')}">
-    <label for="pf">Photo</label><div id="pv"></div><input id="pf" type="file" accept="image/*">
+    <label>Photo</label><div id="pv"></div>
+    <div class="row"><label class="btn" for="pfc" style="display:flex;align-items:center;justify-content:center;margin:0">📷 Prendre une photo</label><label class="btn sec" for="pf" style="display:flex;align-items:center;justify-content:center;margin:0">🖼️ Galerie</label></div>
+    <input id="pfc" type="file" accept="image/*" capture="environment" hidden><input id="pf" type="file" accept="image/*" hidden>
     <label for="nt">Notes</label><textarea id="nt" rows="3">${esc(c.notes || '')}</textarea></div><button class="btn big">Enregistrer</button></form>`);
   if (c.photo) sign([c.photo]).then(m => { if (m[c.photo]) $('#pv').innerHTML = `<img class="av" style="width:96px;height:96px" src="${esc(m[c.photo])}" alt="">`; });
+  const pick = (a, b) => { $(a).onchange = () => { $(b).value = ''; const f = $(a).files[0]; if (f) $('#pv').innerHTML = `<img class="av" style="width:96px;height:96px" src="${URL.createObjectURL(f)}" alt="">`; }; };
+  pick('#pfc', '#pf'); pick('#pf', '#pfc');
   $('#f').onsubmit = async e => {
     e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
-    const f = $('#pf').files[0]; let photo = c.photo || null;
+    const f = $('#pfc').files[0] || $('#pf').files[0]; let photo = c.photo || null;
     if (f){ try { photo = await upload(f, 'or-fichiers', 'contacts', '', 600); } catch(err){ toast(err.message || String(err), 1); b.disabled = false; return; } }
     const body = {photo, societe_id:sid, civilite:$('#ci').value || null, prenom:$('#pr').value.trim() || null, nom:$('#nm').value.trim(), mobile:$('#mo').value.trim() || null, courriel:$('#cm').value.trim() || null, notes:$('#nt').value.trim() || null};
     const {error} = c.id ? await sb.from('t_contact').update(body).eq('id', c.id) : await sb.from('t_contact').insert(body);
