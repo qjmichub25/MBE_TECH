@@ -40,6 +40,11 @@ select.et{width:auto;min-height:36px;font-size:14px;margin-top:6px}
 #lb{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 #lb img{max-width:100%;max-height:100%;object-fit:contain}
 #lbx{position:absolute;top:calc(12px + env(safe-area-inset-top));right:12px}
+.av{width:56px;height:56px;border-radius:50%;object-fit:cover;display:inline-flex;align-items:center;justify-content:center;background:var(--bd);color:var(--mut);font-weight:600;flex:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px}
+.grid .card{margin:0}
+.tc{text-align:center}
+.tc .av{display:flex;width:96px;height:96px;margin:0 auto 6px;font-size:28px}
 canvas#sg{width:100%;height:160px;background:#fff;border:1px solid var(--bd);border-radius:10px;touch-action:none;display:block;margin-bottom:6px}
 video{width:100%;max-height:55vh;object-fit:cover;border-radius:12px;background:#000}
 #toast{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));padding:12px;border-radius:10px;background:var(--ok);color:#fff;display:none;z-index:9}
@@ -117,12 +122,14 @@ async function home(){
      <button class="btn sec big" id="neu">Nouvelle entrée sans QR</button>
      <button class="btn sec big" id="cmd">À commander / affecter</button>
      <button class="btn sec big" id="scs">Sociétés et contacts</button>
+     <button class="btn sec big" id="trb">Trombinoscope</button>
      <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div><h2>Documents ouverts</h2><div id="docs" class="mut"></div></div>`);
   $('#out').onclick = () => sb.auth.signOut();
   $('#scan').onclick = scan;
   $('#neu').onclick = () => neuf('');
   $('#cmd').onclick = aCommander;
   $('#scs').onclick = societes;
+  $('#trb').onclick = trombi;
   $('#go').onclick = async () => { const v = $('#q').value.trim(); if (!v) return; if (/^\d+$/.test(v)) openOR(+v); else if (!(await openDocByNum(v))) lookup(v); };
   const {data, error} = await sb.from('v_or_en_cours').select('n_or,date_op,id_mat,matcop,societe_id').order('date_op',{ascending:false});
   if (error) return $('#list').textContent = error.message;
@@ -218,6 +225,14 @@ async function loadRefs(){
   const [r, rc] = await Promise.all([sb.from('t_societe').select('id,nom,typologie').order('nom'), sb.from('t_contact').select('id,prenom,nom,societe_id').order('nom')]);
   soc = r.data || []; ctc = rc.data || [];
 }
+async function sign(paths){
+  const m = {}; if (!paths.length) return m;
+  const {data} = await sb.storage.from('or-fichiers').createSignedUrls(paths, 3600);
+  (data || []).forEach(x => { if (x.signedUrl) m[x.path] = x.signedUrl; });
+  return m;
+}
+const initials = c => `${(c.prenom || '')[0] || ''}${(c.nom || '')[0] || ''}`.toUpperCase();
+const avatar = (c, m) => m[c.photo] ? `<img class="av" src="${esc(m[c.photo])}" alt="" loading="lazy">` : `<span class="av">${esc(initials(c))}</span>`;
 const FJ = ['EURL','SARL','SAS','SASU','EI','SA','Association','Autre'], CIV = ['M.','Mme','Mlle','Mgr','Dr','Me'];
 const TYPS = {client:`Client`, fournisseur:`Fournisseur`, prestataire:`Prestataire`};
 const opts = (arr, cur, blank) => (blank ? `<option value="">—</option>` : '') + arr.map(v => `<option${v === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
@@ -231,7 +246,7 @@ function societes(){
   $('#ns').onclick = () => ficheSoc(null);
 }
 async function ficheSoc(id){
-  let s = {}, cs = [], tarif = '';
+  let s = {}, cs = [], tarif = '', pm = {};
   if (id){
     const [a, b, c] = await Promise.all([
       sb.from('t_societe').select('*').eq('id', id).single(),
@@ -239,6 +254,7 @@ async function ficheSoc(id){
       me.role === 'gerant' ? sb.from('t_tarif').select('note').eq('societe_id', id).maybeSingle() : Promise.resolve({data:null})]);
     if (a.error) return toast(a.error.message, 1);
     s = a.data; cs = b.data || []; tarif = (c.data && c.data.note) || '';
+    pm = await sign(cs.map(x => x.photo).filter(Boolean));
   }
   const ty = s.typologie || [], nomC = c => `${c.civilite || ''} ${c.prenom || ''} ${c.nom}`.trim();
   const web = s.site_web ? (/^https?:/i.test(s.site_web) ? s.site_web : 'https://' + s.site_web) : '';
@@ -254,7 +270,7 @@ async function ficheSoc(id){
     <label for="nt">Notes</label><textarea id="nt" rows="3">${esc(s.notes || '')}</textarea>
     ${me.role === 'gerant' && id ? `<label for="tf">Tarif : remise, conditions (gérants seulement)</label><textarea id="tf" rows="2">${esc(tarif)}</textarea>` : ''}
     </div><button class="btn big">Enregistrer</button></form>
-    ${id ? `<div class="pad"><h2>Contacts</h2>${cs.map(c => `<div class="card"><b>${esc(nomC(c))}</b>${c.id === s.contact_principal_id ? ` <span class="tag">principal</span>` : ''}<div class="mut">${c.mobile ? `<a href="tel:${esc(c.mobile)}">📞 ${esc(c.mobile)}</a> ` : ''}${c.courriel ? `<a href="mailto:${esc(c.courriel)}">✉️ ${esc(c.courriel)}</a>` : ''}</div><button class="btn sec ed" data-c="${c.id}">Modifier</button></div>`).join('') || `<p class="mut">Aucun contact.</p>`}<button class="btn sec big" id="nc">＋ Nouveau contact</button></div>` : ''}`);
+    ${id ? `<div class="pad"><h2>Contacts</h2>${cs.map(c => `<div class="card" style="display:flex;gap:10px;align-items:center">${avatar(c, pm)}<div style="flex:1"><b>${esc(nomC(c))}</b>${c.id === s.contact_principal_id ? ` <span class="tag">principal</span>` : ''}<div class="mut">${c.mobile ? `<a href="tel:${esc(c.mobile)}">📞 ${esc(c.mobile)}</a> ` : ''}${c.courriel ? `<a href="mailto:${esc(c.courriel)}">✉️ ${esc(c.courriel)}</a>` : ''}</div><button class="btn sec ed" data-c="${c.id}">Modifier</button></div></div>`).join('') || `<p class="mut">Aucun contact.</p>`}<button class="btn sec big" id="nc">＋ Nouveau contact</button></div>` : ''}`);
   $('#f').onsubmit = async e => {
     e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
     try {
@@ -279,19 +295,40 @@ async function ficheSoc(id){
 }
 function ficheContact(sid, c){
   c = c || {};
-  view(bar(c.id ? `Modifier le contact` : `Nouveau contact`, () => ficheSoc(sid)) + `<form id="f" class="pad"><div class="card">
+  view(bar(c.id ? `Modifier le contact` : `Nouveau contact`, () => sid ? ficheSoc(sid) : trombi()) + `<form id="f" class="pad"><div class="card">
     <label for="ci">Civilité</label><select id="ci">${opts(CIV, c.civilite, true)}</select>
     <label for="pr">Prénom</label><input id="pr" value="${esc(c.prenom || '')}">
     <label for="nm">Nom</label><input id="nm" value="${esc(c.nom || '')}" required>
     <label for="mo">Mobile</label><input id="mo" type="tel" value="${esc(c.mobile || '')}">
     <label for="cm">E-mail</label><input id="cm" type="email" value="${esc(c.courriel || '')}">
+    <label for="pf">Photo</label><div id="pv"></div><input id="pf" type="file" accept="image/*">
     <label for="nt">Notes</label><textarea id="nt" rows="3">${esc(c.notes || '')}</textarea></div><button class="btn big">Enregistrer</button></form>`);
+  if (c.photo) sign([c.photo]).then(m => { if (m[c.photo]) $('#pv').innerHTML = `<img class="av" style="width:96px;height:96px" src="${esc(m[c.photo])}" alt="">`; });
   $('#f').onsubmit = async e => {
     e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
-    const body = {societe_id:sid, civilite:$('#ci').value || null, prenom:$('#pr').value.trim() || null, nom:$('#nm').value.trim(), mobile:$('#mo').value.trim() || null, courriel:$('#cm').value.trim() || null, notes:$('#nt').value.trim() || null};
+    const f = $('#pf').files[0]; let photo = c.photo || null;
+    if (f){ try { photo = await upload(f, 'or-fichiers', 'contacts', '', 600); } catch(err){ toast(err.message || String(err), 1); b.disabled = false; return; } }
+    const body = {photo, societe_id:sid, civilite:$('#ci').value || null, prenom:$('#pr').value.trim() || null, nom:$('#nm').value.trim(), mobile:$('#mo').value.trim() || null, courriel:$('#cm').value.trim() || null, notes:$('#nt').value.trim() || null};
     const {error} = c.id ? await sb.from('t_contact').update(body).eq('id', c.id) : await sb.from('t_contact').insert(body);
     if (error){ toast(error.message, 1); b.disabled = false; return; }
-    await loadRefs(); toast(`Contact enregistré`); ficheSoc(sid);
+    await loadRefs(); toast(`Contact enregistré`); sid ? ficheSoc(sid) : trombi();
+  };
+}
+
+async function trombi(){
+  view(bar(`Trombinoscope`, home) + `<div class="pad"><input id="tq" placeholder="Rechercher un nom ou une société…" autocomplete="off"><div id="tg" class="grid"></div></div>`);
+  const {data, error} = await sb.from('t_contact').select('id,prenom,nom,mobile,photo,societe_id').order('nom');
+  if (error) return toast(error.message, 1);
+  const pm = await sign(data.filter(c => c.photo).map(c => c.photo));
+  const nz = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const draw = () => { const q = nz($('#tq').value.trim());
+    $('#tg').innerHTML = data.filter(c => !q || nz(`${c.prenom || ''} ${c.nom} ${socName(c.societe_id)}`).includes(q)).map(c => `<div class="card tc item" data-c="${c.id}">${avatar(c, pm)}<div><b>${esc(`${c.prenom || ''} ${c.nom}`.trim())}</b></div><div class="mut">${esc(socName(c.societe_id))}</div>${c.mobile ? `<a href="tel:${esc(c.mobile)}">📞 ${esc(c.mobile)}</a>` : ''}</div>`).join('') || `<p class="mut">Aucun contact.</p>`; };
+  $('#tq').oninput = draw; draw();
+  $('#tg').onclick = e => {
+    if (e.target.closest('a')) return;
+    const el = e.target.closest('[data-c]'); if (!el) return;
+    const c = data.find(x => x.id === el.dataset.c);
+    c.societe_id ? ficheSoc(c.societe_id) : ficheContact(null, c);
   };
 }
 
@@ -368,19 +405,19 @@ async function openDoc(id){
 }
 
 /* ---------- Photos ---------- */
-async function shrink(file){
+async function shrink(file, max = 1600){
   if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((ok,ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = url; });
-    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
     const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth*k); c.height = Math.round(img.naturalHeight*k);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
     return await new Promise(ok => c.toBlob(b => ok(b || file), 'image/jpeg', .8));
   } catch { return file; } finally { URL.revokeObjectURL(url); }
 }
-async function upload(file, bucket, n, pre=''){
-  const blob = pre ? file : await shrink(file);
+async function upload(file, bucket, n, pre='', max){
+  const blob = pre ? file : await shrink(file, max);
   const ext = ({'application/pdf':'pdf','image/png':'png','image/gif':'gif','image/heic':'heic','image/webp':'webp'})[blob.type] || 'jpg';
   const stamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
   const path = `${n}/${pre}${stamp}_${Math.random().toString(36).slice(2,6)}.${ext}`;
