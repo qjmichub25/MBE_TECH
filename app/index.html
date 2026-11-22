@@ -171,9 +171,17 @@ async function lookup(code){
   const {data:ent, error} = await sb.from('t_or').select('n_or').eq('type','entree').eq('id_mat',code).limit(1);
   if (error) return toast(error.message, 1);
   if (!ent.length) return neuf(code);
-  const {data:open} = await sb.from('v_or_en_cours').select('n_or').eq('id_mat',code).limit(1);
-  if (open && open.length) return openOR(open[0].n_or);
+  const {data:open} = await sb.from('v_or_en_cours').select('n_or,date_op,matcop,societe_id').eq('id_mat',code).order('date_op',{ascending:false});
+  if (open && open.length) return choix(code, open);
   histo(code, true);
+}
+
+function choix(code, open){
+  view(bar(code, home) + `<div class="pad">${open.map(o => `<div class="card"><b>${orn(o.n_or)}</b> <span class="tag">${esc(socName(o.societe_id))}</span><div>${esc(o.matcop || '')}</div><div class="mut">${fmt(o.date_op)}</div><button class="btn big" data-n="${o.n_or}">Reprendre ${orn(o.n_or)}</button></div>`).join('')}
+    <button class="btn sec big" id="hs">Historique du matériel</button><button class="btn sec big" id="nv">Nouvelle entrée pour ce matériel</button></div>`);
+  document.querySelectorAll('button[data-n]').forEach(b => b.onclick = () => openOR(+b.dataset.n));
+  $('#hs').onclick = () => histo(code);
+  $('#nv').onclick = () => { if (confirm(`Un OR est déjà en cours pour ce matériel. Créer quand même une nouvelle entrée ?`)) neuf(code); };
 }
 
 /* ---------- Fiche d’un OR ---------- */
@@ -245,7 +253,7 @@ function societes(){
   $('#sl').onclick = e => { const c = e.target.closest('[data-s]'); if (c) ficheSoc(c.dataset.s); };
   $('#ns').onclick = () => ficheSoc(null);
 }
-async function ficheSoc(id){
+async function ficheSoc(id, edit){
   let s = {}, cs = [], tarif = '', pm = {};
   if (id){
     const [a, b, c] = await Promise.all([
@@ -258,6 +266,20 @@ async function ficheSoc(id){
   }
   const ty = s.typologie || [], nomC = c => `${c.civilite || ''} ${c.prenom || ''} ${c.nom}`.trim();
   const web = s.site_web ? (/^https?:/i.test(s.site_web) ? s.site_web : 'https://' + s.site_web) : '';
+  const cl = cs.map(c => `<div class="card" style="display:flex;gap:10px;align-items:center">${avatar(c, pm)}<div style="flex:1"><b>${esc(nomC(c))}</b>${c.id === s.contact_principal_id ? ` <span class="tag">principal</span>` : ''}<div class="mut">${c.mobile ? `<a href="tel:${esc(c.mobile)}">📞 ${esc(c.mobile)}</a> ` : ''}${c.courriel ? `<a href="mailto:${esc(c.courriel)}">✉️ ${esc(c.courriel)}</a>` : ''}</div><button class="btn sec ed" data-c="${c.id}">Modifier</button></div></div>`).join('') || `<p class="mut">Aucun contact.</p>`;
+  if (id && !edit){
+    const adr = (s.adresse_postale || '').split('\n').filter(Boolean).join(', ');
+    view(bar(s.nom, societes, `<button class="btn sec" id="ed">Modifier</button>`) + `<div class="pad"><div class="card">
+      <div>${ty.map(t => `<span class="tag">${TYPS[t] || t}</span>`).join(' ')} ${s.forme_juridique ? `<span class="mut">${esc(s.forme_juridique)}</span>` : ''}</div>
+      ${adr ? `<div class="mut">${esc(adr)}</div>` : ''}
+      <div>${s.standard ? `<a href="tel:${esc(s.standard)}">📞 ${esc(s.standard)}</a> ` : ''}${web ? `<a href="${esc(web)}" target="_blank" rel="noopener">🌐 Site</a>` : ''}</div>
+      ${s.siret ? `<div class="mut">SIRET ${esc(s.siret)}</div>` : ''}${s.notes ? `<div>${esc(s.notes)}</div>` : ''}${tarif ? `<div><b>Tarif :</b> ${esc(tarif)}</div>` : ''}</div>
+      <h2>Contacts</h2>${cl}<button class="btn sec big" id="nc">＋ Nouveau contact</button></div>`);
+    $('#ed').onclick = () => ficheSoc(id, true);
+    $('#nc').onclick = () => ficheContact(id, null);
+    document.querySelectorAll('button[data-c]').forEach(b => b.onclick = () => ficheContact(id, cs.find(c => c.id === b.dataset.c)));
+    return;
+  }
   view(bar(id ? s.nom : `Nouvelle société`, societes) + `<form id="f" class="pad"><div class="card">
     <label for="nm">Nom</label><input id="nm" value="${esc(s.nom || '')}" required>
     <label>Type</label>${Object.entries(TYPS).map(([k, v]) => `<label class="chk"><input type="checkbox" name="ty" value="${k}"${ty.includes(k) ? ' checked' : ''}> ${v}</label>`).join('')}
@@ -270,7 +292,7 @@ async function ficheSoc(id){
     <label for="nt">Notes</label><textarea id="nt" rows="3">${esc(s.notes || '')}</textarea>
     ${me.role === 'gerant' && id ? `<label for="tf">Tarif : remise, conditions (gérants seulement)</label><textarea id="tf" rows="2">${esc(tarif)}</textarea>` : ''}
     </div><button class="btn big">Enregistrer</button></form>
-    ${id ? `<div class="pad"><h2>Contacts</h2>${cs.map(c => `<div class="card" style="display:flex;gap:10px;align-items:center">${avatar(c, pm)}<div style="flex:1"><b>${esc(nomC(c))}</b>${c.id === s.contact_principal_id ? ` <span class="tag">principal</span>` : ''}<div class="mut">${c.mobile ? `<a href="tel:${esc(c.mobile)}">📞 ${esc(c.mobile)}</a> ` : ''}${c.courriel ? `<a href="mailto:${esc(c.courriel)}">✉️ ${esc(c.courriel)}</a>` : ''}</div><button class="btn sec ed" data-c="${c.id}">Modifier</button></div></div>`).join('') || `<p class="mut">Aucun contact.</p>`}<button class="btn sec big" id="nc">＋ Nouveau contact</button></div>` : ''}`);
+    ${id ? `<div class="pad"><h2>Contacts</h2>${cl}<button class="btn sec big" id="nc">＋ Nouveau contact</button></div>` : ''}`);
   $('#f').onsubmit = async e => {
     e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
     try {
