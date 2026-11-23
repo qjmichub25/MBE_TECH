@@ -406,6 +406,24 @@ async function affecter(sel){
     toast(`${data.numero} créé`); go(data.id);
   };
 }
+function buildTable(d, rows){
+  const prix = d.type !== 'dp', eur = n => n == null ? '' : Number(n).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
+  const head = ['Désignation', 'Qté', 'Unité'].concat(prix ? ['PU HT', 'Total HT'] : []);
+  const body = rows.map(r => [String(r.txt || '').replace(/\s+/g, ' ').trim(), String(r.q), UNITES[r.u] || '', ...(prix ? [eur(r.pu), eur(r.tot)] : [])]);
+  if (prix) body.push(['Total HT', '', '', '', eur(rows.reduce((a, r) => a + (r.tot || 0), 0))]);
+  const lib = {dp:`Demande de prix`, ha:`Commande d’achat`, devis:`Devis`}[d.type];
+  const titre = `${d.numero} · ${lib} · ${new Date(d.date_doc).toLocaleDateString('fr-FR')}` + (socName(d.societe_id) ? ` · ${socName(d.societe_id)}` : '') + (d.ref_externe ? ` · Réf. ${d.ref_externe}` : '');
+  const st = 'border:1px solid #999;padding:4px 8px;';
+  const html = `<p><b>${esc(titre)}</b></p><table style="border-collapse:collapse;font-family:sans-serif;font-size:14px"><thead><tr>${head.map((h, i) => `<th style="${st}background:#eee;text-align:${i > 0 && i !== 2 ? 'right' : 'left'}">${h}</th>`).join('')}</tr></thead><tbody>${body.map(r => `<tr>${r.map((c, i) => `<td style="${st}text-align:${i > 0 && i !== 2 ? 'right' : 'left'}">${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const text = titre + '\n' + [head, ...body].map(r => r.join('\t')).join('\n');
+  return {html, text};
+}
+function copyTable(d, rows){
+  const {html, text} = buildTable(d, rows), cp = navigator.clipboard;
+  const brut = () => cp ? cp.writeText(text).then(() => toast(`Copié en texte (colonnes séparées par des tabulations)`)).catch(() => toast(`Copie impossible sur cet appareil`, 1)) : toast(`Copie impossible sur cet appareil`, 1);
+  if (cp && window.ClipboardItem) cp.write([new ClipboardItem({'text/html': new Blob([html], {type:'text/html'}), 'text/plain': new Blob([text], {type:'text/plain'})})]).then(() => toast(`Tableau copié : collez-le dans votre message`)).catch(brut);
+  else brut();
+}
 async function openDoc(id){
   const [{data:d, error}, {data:ls}] = await Promise.all([
     sb.from('t_doc').select('*').eq('id', id).single(),
@@ -413,18 +431,25 @@ async function openDoc(id){
   if (error) return toast(error.message, 1);
   const lines = ls || [], byOr = {}; lines.forEach(r => (byOr[r.n_or] = byOr[r.n_or] || []).push(r));
   const tot = lines.reduce((a, r) => a + (r.pu_achat != null ? r.qte * r.pu_achat : 0), 0);
+  let rows = lines.map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu_achat, tot:r.pu_achat != null ? r.qte * r.pu_achat : null}));
+  if (d.type === 'devis'){
+    const {data:dl} = await sb.from('v_lignes_gerant').select('matcop,qte,unite,pu,coeff,remise,totaligne').eq('doc_id', id).order('n_or');
+    rows = (dl || []).map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu != null ? Math.round(r.pu * r.coeff * r.remise * 100) / 100 : null, tot:r.totaligne}));
+  }
   view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>
     <label>Société</label>${cb('dS', `Rechercher ou créer…`)}<label>Contact</label>${cb('dC', `Rechercher ou créer…`)}
     <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Notes</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
     <button class="btn" id="sv" style="margin-top:8px">Enregistrer l’en-tête</button></div>
     ${d.type !== 'devis' ? `<p><b>Total achat HT :</b> ${tot.toFixed(2)} € <span class="mut">(lignes sans prix exclues)</span></p>` : ''}
     ${Object.keys(byOr).map(n => `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}</div>${d.clos ? '' : `<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
+    <button class="btn sec big" id="cp">📋 Copier le tableau</button>
     <button class="btn ${d.clos ? 'sec ' : ''}big" id="cl">${d.clos ? `Rouvrir` : `Clore le document`}</button></div>`);
   const P = pair('#dS', '#dC', d.type === 'devis' ? 'client' : 'fournisseur'); P.s.set(d.societe_id); P.c.set(d.contact_id);
   $('#sv').onclick = async () => {
     const {error} = await sb.from('t_doc').update({societe_id:P.s.get() || null, contact_id:P.c.get() || null, ref_externe:$('#rx').value.trim() || null, notes:$('#nt').value.trim() || null}).eq('id', id);
     toast(error ? error.message : `En-tête enregistré`, !!error);
   };
+  $('#cp').onclick = () => copyTable(d, rows);
   $('#cl').onclick = async () => { const {error} = await sb.from('t_doc').update({clos:!d.clos}).eq('id', id); if (error) return toast(error.message, 1); openDoc(id); };
   document.querySelectorAll('.rm').forEach(b => b.onclick = async () => { const {error} = await sb.from('t_or').update({doc_id:null}).eq('id', b.dataset.id); if (error) return toast(error.message, 1); openDoc(id); });
   document.querySelectorAll('.go').forEach(b => b.onclick = () => openOR(+b.dataset.n));
