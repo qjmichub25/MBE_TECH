@@ -117,7 +117,7 @@ async function enter(){
 /* ---------- Accueil ---------- */
 async function home(){
   view(bar(`Atelier`, null, `<span class="mut">${esc(me.initiales)} · ${me.role==='gerant'?`gérant`:`technicien`}</span><button class="btn sec" id="out">Sortir</button>`) +
-    `<div class="pad"><button class="btn big" id="scan">Scanner un QR</button>
+    `<div class="pad"><button class="btn big" id="scan">Scanner un QR / Data Matrix</button>
      <div class="card"><label for="q">Code matériel ou n° d’OR</label><div class="row"><input id="q" placeholder="MAT-0001 ou 2"><button class="btn" id="go">OK</button></div></div>
      <button class="btn sec big" id="neu">Nouvelle entrée sans QR</button>
      <button class="btn sec big" id="cmd">À commander / affecter</button>
@@ -143,20 +143,51 @@ async function home(){
 }
 
 /* ---------- Scan et recherche par code ---------- */
+function loadZX(){
+  return window.ZXing ? Promise.resolve() : new Promise(ok => {
+    const t = document.createElement('script'); t.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+    t.onload = ok; t.onerror = ok; document.head.appendChild(t);
+  });
+}
 async function scan(){
   let stream, stop = false;
   const end = () => { stop = true; if (stream) stream.getTracks().forEach(t => t.stop()); };
-  view(bar(`Scanner`, () => { end(); home(); }) + `<div class="pad"><video id="v" playsinline muted></video><p class="mut" id="st">Visez le QR code…</p><div class="row"><input id="man" placeholder="ou saisir le code"><button class="btn" id="ok">OK</button></div></div>`);
+  view(bar(`Scanner`, () => { end(); home(); }) + `<div class="pad"><video id="v" playsinline muted></video><p class="mut" id="st">Visez le QR code ou le Data Matrix…</p><div class="row"><input id="man" placeholder="ou saisir le code"><button class="btn" id="ok">OK</button></div></div>`);
   $('#ok').onclick = () => { end(); lookup($('#man').value); };
   const v = $('#v'), c = document.createElement('canvas'), x = c.getContext('2d',{willReadFrequently:true});
-  const tick = () => {
+  let bd = null, zx = null, last = 0, busy = false;
+  if ('BarcodeDetector' in window){
+    try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes('qr_code') && f.includes('data_matrix')) bd = new BarcodeDetector({formats:['qr_code','data_matrix']}); } catch(e){}
+  }
+  if (!bd){
+    await loadZX();
+    if (window.ZXing){
+      zx = new ZXing.MultiFormatReader(); const h = new Map();
+      h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.DATA_MATRIX, ZXing.BarcodeFormat.QR_CODE]);
+      h.set(ZXing.DecodeHintType.TRY_HARDER, true); zx.setHints(h);
+    }
+  }
+  const tick = async () => {
     if (stop) return;
-    if (v.readyState >= 2 && v.videoWidth){
-      const k = Math.min(1, 640 / v.videoWidth);
-      c.width = Math.round(v.videoWidth*k); c.height = Math.round(v.videoHeight*k);
-      x.drawImage(v, 0, 0, c.width, c.height);
-      const d = x.getImageData(0,0,c.width,c.height), r = jsQR(d.data, d.width, d.height);
-      if (r && r.data){ end(); lookup(r.data); return; }
+    if (v.readyState >= 2 && v.videoWidth && !busy){
+      busy = true;
+      try {
+        let txt = '';
+        if (bd){ const r = await bd.detect(v); if (r.length) txt = r[0].rawValue; }
+        else {
+          const k = Math.min(1, 800 / v.videoWidth);
+          c.width = Math.round(v.videoWidth*k); c.height = Math.round(v.videoHeight*k);
+          x.drawImage(v, 0, 0, c.width, c.height);
+          const d = x.getImageData(0,0,c.width,c.height), r = jsQR(d.data, d.width, d.height);
+          if (r && r.data) txt = r.data;
+          else if (zx && Date.now() - last > 250){
+            last = Date.now();
+            try { txt = zx.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(c)))).getText(); } catch(e){}
+          }
+        }
+        if (txt){ end(); lookup(txt); return; }
+      } catch(e){}
+      busy = false;
     }
     requestAnimationFrame(tick);
   };
