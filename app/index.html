@@ -121,13 +121,15 @@ async function home(){
      <div class="card"><label for="q">Code matériel ou n° d’OR</label><div class="row"><input id="q" placeholder="MAT-0001 ou 2"><button class="btn" id="go">OK</button></div></div>
      <button class="btn sec big" id="neu">Nouvelle entrée sans QR</button>
      <button class="btn sec big" id="cmd">À commander / affecter</button>
+     ${me.role === 'gerant' ? `<button class="btn sec big" id="dv">Devis</button>` : ''}
      <button class="btn sec big" id="scs">Sociétés et contacts</button>
      <button class="btn sec big" id="trb">Trombinoscope</button>
-     <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div><h2>Documents ouverts</h2><div id="docs" class="mut"></div></div>`);
+     <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div><h2>Documents ouverts</h2><div id="docs" class="mut"></div><h2>Prestations à exécuter</h2><div id="px" class="mut"></div></div>`);
   $('#out').onclick = () => sb.auth.signOut();
   $('#scan').onclick = scan;
   $('#neu').onclick = () => neuf('');
   $('#cmd').onclick = aCommander;
+  if ($('#dv')) $('#dv').onclick = devisList;
   $('#scs').onclick = societes;
   $('#trb').onclick = trombi;
   $('#go').onclick = async () => { const v = $('#q').value.trim(); if (!v) return; if (/^\d+$/.test(v)) openOR(+v); else if (!(await openDocByNum(v))) lookup(v); };
@@ -140,6 +142,11 @@ async function home(){
   $('#docs').className = '';
   $('#docs').innerHTML = (od||[]).map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span> <span class="mut">${fmt(d.date_doc)}</span></div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`;
   $('#docs').onclick = e => { const c = e.target.closest('[data-d]'); if (c) openDoc(c.dataset.d); };
+  const {data:px} = await sb.from('t_or').select('id,n_or,matcop,qte,unite,etat,doc:t_doc(numero,accepte_le)').eq('type', 'devis').order('n_or');
+  const todo = (px || []).filter(r => r.doc && r.doc.accepte_le && r.etat !== 'fait');
+  $('#px').className = '';
+  $('#px').innerHTML = todo.map(r => `<div class="card item" data-n="${r.n_or}"><b>${orn(r.n_or)}</b> <span class="tag">${esc(r.doc.numero)}</span>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}</div></div>`).join('') || `<p class="mut">Rien à exécuter.</p>`;
+  $('#px').onclick = e => { const c = e.target.closest('[data-n]'); if (c) openOR(+c.dataset.n); };
 }
 
 /* ---------- Scan et recherche par code ---------- */
@@ -437,10 +444,73 @@ async function affecter(sel){
     toast(`${data.numero} créé`); go(data.id);
   };
 }
+async function devisList(){
+  view(bar(`Devis`, home) + `<div class="pad"><button class="btn big" id="nd">＋ Nouveau devis</button><div id="dl" class="mut">Chargement…</div></div>`);
+  $('#nd').onclick = nouveauDevis;
+  const [a, b] = await Promise.all([
+    sb.from('t_doc').select('id,numero,societe_id,date_doc,clos').eq('type', 'devis').order('date_doc', {ascending:false}),
+    sb.from('v_lignes_gerant').select('doc_id,totaligne').eq('type', 'devis')]);
+  if (a.error) return toast(a.error.message, 1);
+  const tot = {}; (b.data || []).forEach(r => { if (r.doc_id) tot[r.doc_id] = (tot[r.doc_id] || 0) + (r.totaligne || 0); });
+  $('#dl').className = '';
+  $('#dl').innerHTML = a.data.map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)} · ${(tot[d.id] || 0).toFixed(2)} € HT</div></div>`).join('') || `<p class="mut">Aucun devis.</p>`;
+  $('#dl').onclick = e => { const c = e.target.closest('[data-d]'); if (c) openDoc(c.dataset.d); };
+}
+async function nouveauDevis(){
+  const {data, error} = await sb.from('v_or_en_cours').select('id,n_or,date_op,matcop,societe_id,contact_id').order('date_op', {ascending:false});
+  if (error) return toast(error.message, 1);
+  view(bar(`Devis pour quel OR ?`, devisList) + `<div class="pad" id="ol">${data.map((o, i) => `<div class="card item" data-i="${i}"><b>${orn(o.n_or)}</b> <span class="tag">${esc(socName(o.societe_id))}</span><div>${esc(o.matcop || '')}</div><div class="mut">${fmt(o.date_op)}</div></div>`).join('') || `<p class="mut">Aucun OR en cours.</p>`}</div>`);
+  $('#ol').onclick = e => { const c = e.target.closest('[data-i]'); if (c) genDevis(data[+c.dataset.i]); };
+}
+async function genDevis(en){
+  const {data, error} = await sb.from('t_or').select('id,type,matcop,qte,unite,pu_achat').eq('entree_id', en.id).order('date_op');
+  if (error) return toast(error.message, 1);
+  const base = data.filter(r => !['entree', 'sortie', 'devis', 'acceptation'].includes(r.type));
+  view(bar(`Devis ${orn(en.n_or)}`, nouveauDevis) + `<div class="pad"><p class="mut">Cochez les lignes à reprendre dans le devis. Vous fixerez ensuite les prix ligne par ligne.</p><div id="ls">${base.map(r => `<label class="card chk"><input type="checkbox" value="${r.id}" checked><div><b>${TYPES[r.type]}</b><div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · achat ${r.pu_achat} € HT` : ''}</div></div></label>`).join('') || `<p class="mut">Aucune ligne dans cet OR : le devis sera créé vide.</p>`}</div><button class="btn big" id="go">Créer le devis</button></div>`);
+  $('#go').onclick = async () => {
+    const sel = [...document.querySelectorAll('#ls input:checked')].map(i => base.find(r => r.id === i.value));
+    $('#go').disabled = true;
+    try {
+      const {data:d, error:e1} = await sb.from('t_doc').insert({type:'devis', societe_id:en.societe_id, contact_id:en.contact_id}).select('id,numero').single();
+      if (e1) throw e1;
+      if (sel.length){
+        const {data:ls, error:e2} = await sb.from('t_or').insert(sel.map(r => ({type:'devis', entree_id:en.id, doc_id:d.id, matcop:r.matcop, qte:r.qte, unite:r.unite}))).select('id');
+        if (e2) throw e2;
+        const {error:e3} = await sb.from('t_or_prix').insert(ls.map((l, i) => ({ligne_id:l.id, pu:['ha', 'dp'].includes(sel[i].type) ? sel[i].pu_achat : null})));
+        if (e3) throw e3;
+      }
+      toast(`${d.numero} créé`); openDoc(d.id);
+    } catch(err){ toast(err.message || String(err), 1); $('#go').disabled = false; }
+  };
+}
+function ligneDevis(d, r, p, eid){
+  p = p || {};
+  view(bar(r ? `Chiffrer la ligne` : `Nouvelle ligne`, () => openDoc(d.id)) + `<form id="f" class="pad"><div class="card">
+    <label for="tx">Désignation</label><textarea id="tx" rows="3" required>${esc(r ? r.matcop || '' : '')}</textarea>
+    <div class="row"><div><label for="qt">Quantité</label><input id="qt" type="number" step="0.01" min="0" inputmode="decimal" value="${r ? r.qte : 1}"></div><div><label for="un">Unité</label><select id="un">${Object.entries(UNITES).map(([k, v]) => `<option value="${k}"${r && r.unite === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div></div>
+    <label for="pu">Prix unitaire HT de base (€)</label><input id="pu" type="number" step="0.01" min="0" inputmode="decimal" value="${p.pu ?? ''}">
+    <div class="row"><div><label for="co">Coefficient (1,20 = +20 %)</label><input id="co" type="number" step="0.001" min="0" inputmode="decimal" value="${p.coeff ?? 1}"></div><div><label for="rm">Remise (0,90 = −10 %)</label><input id="rm" type="number" step="0.001" min="0" max="1" inputmode="decimal" value="${p.remise ?? 1}"></div></div>
+    <label for="ob">Observations internes (jamais montrées au client ni aux techniciens)</label><textarea id="ob" rows="2">${esc(p.obs || '')}</textarea>
+    <p><b>Total HT : <span id="tt">—</span></b></p></div><button class="btn big">Enregistrer</button></form>`);
+  const calc = () => { const t = ['#qt', '#pu', '#co', '#rm'].reduce((a, i) => a * parseFloat($(i).value), 1); $('#tt').textContent = isNaN(t) ? '—' : t.toFixed(2) + ' €'; };
+  ['#qt', '#pu', '#co', '#rm'].forEach(i => $(i).oninput = calc); calc();
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const b = e.target.querySelector('button.big'); b.disabled = true;
+    try {
+      const base = {matcop:$('#tx').value.trim() || null, qte:parseFloat($('#qt').value) || 1, unite:$('#un').value};
+      let id = r && r.id;
+      if (id){ const {error} = await sb.from('t_or').update(base).eq('id', id); if (error) throw error; }
+      else { const {data, error} = await sb.from('t_or').insert({...base, type:'devis', entree_id:eid, doc_id:d.id}).select('id').single(); if (error) throw error; id = data.id; }
+      const {error:e2} = await sb.from('t_or_prix').upsert({ligne_id:id, pu:$('#pu').value === '' ? null : parseFloat($('#pu').value), coeff:parseFloat($('#co').value) || 1, remise:isNaN(parseFloat($('#rm').value)) ? 1 : parseFloat($('#rm').value), observations:$('#ob').value.trim() || null}, {onConflict:'ligne_id'});
+      if (e2) throw e2;
+      toast(`Ligne enregistrée`); openDoc(d.id);
+    } catch(err){ toast(err.message || String(err), 1); b.disabled = false; }
+  };
+}
 function buildTable(d, rows){
   const prix = d.type !== 'dp', eur = n => n == null ? '' : Number(n).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
   const head = ['Désignation', 'Qté', 'Unité'].concat(prix ? ['PU HT', 'Total HT'] : []);
-  const body = rows.map(r => [String(r.txt || '').replace(/\s+/g, ' ').trim(), String(r.q), UNITES[r.u] || '', ...(prix ? [eur(r.pu), eur(r.tot)] : [])]);
+  const body = rows.map(r => [String(r.txt || '').replace(/\s+/g, ' ').trim(), String(r.q), UNITES[r.u] || '', ...(prix ? [eur(r.pu), r.tot === 0 ? 'Offert' : eur(r.tot)] : [])]);
   if (prix) body.push(['Total HT', '', '', '', eur(rows.reduce((a, r) => a + (r.tot || 0), 0))]);
   const lib = {dp:`Demande de prix`, ha:`Commande d’achat`, devis:`Devis`}[d.type];
   const titre = `${d.numero} · ${lib} · ${new Date(d.date_doc).toLocaleDateString('fr-FR')}` + (socName(d.societe_id) ? ` · ${socName(d.societe_id)}` : '') + (d.ref_externe ? ` · Réf. ${d.ref_externe}` : '');
@@ -458,21 +528,29 @@ function copyTable(d, rows){
 async function openDoc(id){
   const [{data:d, error}, {data:ls}] = await Promise.all([
     sb.from('t_doc').select('*').eq('id', id).single(),
-    sb.from('t_or').select('id,n_or,type,matcop,qte,unite,pu_achat,etat').eq('doc_id', id).order('n_or')]);
+    sb.from('t_or').select('id,n_or,entree_id,type,matcop,qte,unite,pu_achat,etat').eq('doc_id', id).order('n_or')]);
   if (error) return toast(error.message, 1);
   const lines = ls || [], byOr = {}; lines.forEach(r => (byOr[r.n_or] = byOr[r.n_or] || []).push(r));
-  const tot = lines.reduce((a, r) => a + (r.pu_achat != null ? r.qte * r.pu_achat : 0), 0);
-  let rows = lines.map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu_achat, tot:r.pu_achat != null ? r.qte * r.pu_achat : null}));
-  if (d.type === 'devis'){
-    const {data:dl} = await sb.from('v_lignes_gerant').select('matcop,qte,unite,pu,coeff,remise,totaligne').eq('doc_id', id).order('n_or');
-    rows = (dl || []).map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu != null ? Math.round(r.pu * r.coeff * r.remise * 100) / 100 : null, tot:r.totaligne}));
+  if (d.type === 'devis' && me.role !== 'gerant'){
+    view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>Devis</b> <span class="tag">${d.accepte_le ? `accepté le ${fmt(d.accepte_le)}` : `en attente d’accord du client`}</span><div class="mut">${fmt(d.date_doc)} · ${esc(socName(d.societe_id))}</div></div>${Object.keys(byOr).map(n => `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>` + byOr[n].map(r => `<div class="card"><div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select></div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}</div>`);
+    document.querySelectorAll('.go').forEach(b => b.onclick = () => openOR(+b.dataset.n));
+    document.querySelectorAll('select.et').forEach(sel => sel.onchange = async () => { const {error} = await sb.from('t_or').update({etat: sel.value || null}).eq('id', sel.dataset.id); toast(error ? error.message : `État mis à jour`, !!error); });
+    return;
   }
-  view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>
+  const tot = lines.reduce((a, r) => a + (r.pu_achat != null ? r.qte * r.pu_achat : 0), 0);
+  let pv = {}, rows = lines.map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu_achat, tot:r.pu_achat != null ? r.qte * r.pu_achat : null}));
+  if (d.type === 'devis'){
+    const {data:dl} = await sb.from('v_lignes_gerant').select('id,matcop,qte,unite,pu,coeff,remise,totaligne').eq('doc_id', id).order('n_or');
+    rows = (dl || []).map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu != null ? Math.round(r.pu * r.coeff * r.remise * 100) / 100 : null, tot:r.totaligne}));
+    pv = Object.fromEntries((dl || []).map(r => [r.id, r]));
+  }
+  view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>${d.type === 'devis' ? `<div>${d.accepte_le ? `<span class="tag">✅ accepté le ${fmt(d.accepte_le)}</span> ` : ''}<button class="btn sec ed" id="ac">${d.accepte_le ? `Retirer l’accord` : `Marquer accepté par le client`}</button></div>` : ''}
     <label>Société</label>${cb('dS', `Rechercher ou créer…`)}<label>Contact</label>${cb('dC', `Rechercher ou créer…`)}
     <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Notes</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
     <button class="btn" id="sv" style="margin-top:8px">Enregistrer l’en-tête</button></div>
-    ${d.type !== 'devis' ? `<p><b>Total achat HT :</b> ${tot.toFixed(2)} € <span class="mut">(lignes sans prix exclues)</span></p>` : ''}
-    ${Object.keys(byOr).map(n => `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}</div>${d.clos ? '' : `<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
+    ${d.type !== 'devis' ? `<p><b>Total achat HT :</b> ${tot.toFixed(2)} € <span class="mut">(lignes sans prix exclues)</span></p>` : `<p><b>Total devis HT :</b> ${Object.values(pv).reduce((a, r) => a + (r.totaligne || 0), 0).toFixed(2)} €</p>`}
+    ${Object.keys(byOr).map(n => `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}${pv[r.id] ? ` · PU ${pv[r.id].pu ?? '—'} × ${pv[r.id].coeff} × ${pv[r.id].remise} = <b>${pv[r.id].totaligne ?? '—'} €</b>${pv[r.id].obs ? `<br><i>${esc(pv[r.id].obs)}</i>` : ''}` : ''}</div>${d.clos ? '' : `${d.type === 'devis' ? `<button class="btn sec ed ch" data-id="${r.id}">Chiffrer</button>` : ''}<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
+    ${d.type === 'devis' && !d.clos ? `<button class="btn sec big" id="nl">＋ Ligne libre</button>` : ''}
     <button class="btn sec big" id="cp">📋 Copier le tableau</button>
     <button class="btn ${d.clos ? 'sec ' : ''}big" id="cl">${d.clos ? `Rouvrir` : `Clore le document`}</button></div>`);
   const P = pair('#dS', '#dC', d.type === 'devis' ? 'client' : 'fournisseur'); P.s.set(d.societe_id); P.c.set(d.contact_id);
@@ -480,6 +558,9 @@ async function openDoc(id){
     const {error} = await sb.from('t_doc').update({societe_id:P.s.get() || null, contact_id:P.c.get() || null, ref_externe:$('#rx').value.trim() || null, notes:$('#nt').value.trim() || null}).eq('id', id);
     toast(error ? error.message : `En-tête enregistré`, !!error);
   };
+  document.querySelectorAll('.ch').forEach(b => b.onclick = () => ligneDevis(d, lines.find(x => x.id === b.dataset.id), pv[b.dataset.id]));
+  if ($('#nl')) $('#nl').onclick = () => lines.length ? ligneDevis(d, null, null, lines[0].entree_id) : toast(`Créez le devis depuis un OR : menu Devis, Nouveau devis.`, 1);
+  if ($('#ac')) $('#ac').onclick = async () => { const {error} = await sb.from('t_doc').update({accepte_le: d.accepte_le ? null : new Date().toISOString()}).eq('id', id); if (error) return toast(error.message, 1); openDoc(id); };
   $('#cp').onclick = () => copyTable(d, rows);
   $('#cl').onclick = async () => { const {error} = await sb.from('t_doc').update({clos:!d.clos}).eq('id', id); if (error) return toast(error.message, 1); openDoc(id); };
   document.querySelectorAll('.rm').forEach(b => b.onclick = async () => { const {error} = await sb.from('t_or').update({doc_id:null}).eq('id', b.dataset.id); if (error) return toast(error.message, 1); openDoc(id); });
