@@ -73,7 +73,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const view = h => { $('#app').innerHTML = h; window.scrollTo(0,0); };
 const fmt = d => new Date(d).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'});
-const orn = n => `OR-${String(n).padStart(6,'0')}`;
+const orn = n => n == null ? `sans OR` : `OR-${String(n).padStart(6,'0')}`;
 const socName = id => (soc.find(s => s.id === id) || {}).nom || '';
 const ctName = id => { const c = ctc.find(x => x.id === id); return c ? `${c.prenom || ''} ${c.nom}`.trim() : ''; };
 const bucketOf = r => GER.includes(r.type) ? 'devis-gerants' : 'or-fichiers';
@@ -133,17 +133,17 @@ async function home(){
   $('#scs').onclick = societes;
   $('#trb').onclick = trombi;
   $('#go').onclick = async () => { const v = $('#q').value.trim(); if (!v) return; if (/^\d+$/.test(v)) openOR(+v); else if (!(await openDocByNum(v))) lookup(v); };
-  const {data, error} = await sb.from('v_or_en_cours').select('n_or,date_op,id_mat,matcop,societe_id').order('date_op',{ascending:false});
+  const {data, error} = await sb.from('v_or_en_cours').select('n_or,date_op,id_mat,matcop,societe_id,contact_id').order('date_op',{ascending:false});
   if (error) return $('#list').textContent = error.message;
   $('#list').className = '';
-  $('#list').innerHTML = data.length ? data.map(r => `<div class="card item" data-n="${r.n_or}"><b>${orn(r.n_or)}</b> <span class="tag">${esc(socName(r.societe_id))}</span><div>${esc(r.matcop||'')}</div><div class="mut">${fmt(r.date_op)}${r.id_mat?` · ${esc(r.id_mat)}`:''}</div></div>`).join('') : `<p class="mut">Aucun OR en cours.</p>`;
+  $('#list').innerHTML = data.length ? data.map(r => `<div class="card item" data-n="${r.n_or}"><b>${orn(r.n_or)}</b> <span class="tag">${esc(socName(r.societe_id))}</span>${r.contact_id ? ` <b>${esc(ctName(r.contact_id))}</b>` : ''}<div>${esc(r.matcop||'')}</div><div class="mut">${fmt(r.date_op)}${r.id_mat?` · ${esc(r.id_mat)}`:''}</div></div>`).join('') : `<p class="mut">Aucun OR en cours.</p>`;
   $('#list').onclick = e => { const c = e.target.closest('[data-n]'); if (c) openOR(+c.dataset.n); };
   const {data:od} = await sb.from('t_doc').select('id,numero,societe_id,date_doc').eq('clos',false).order('date_doc',{ascending:false}).limit(10);
   $('#docs').className = '';
   $('#docs').innerHTML = (od||[]).map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span> <span class="mut">${fmt(d.date_doc)}</span></div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`;
   $('#docs').onclick = e => { const c = e.target.closest('[data-d]'); if (c) openDoc(c.dataset.d); };
   const {data:px} = await sb.from('t_or').select('id,n_or,matcop,qte,unite,etat,doc:t_doc(numero,accepte_le)').eq('type', 'devis').order('n_or');
-  const todo = (px || []).filter(r => r.doc && r.doc.accepte_le && r.etat !== 'fait');
+  const todo = (px || []).filter(r => r.doc && r.doc.accepte_le && r.etat !== 'fait' && r.n_or != null);
   $('#px').className = '';
   $('#px').innerHTML = todo.map(r => `<div class="card item" data-n="${r.n_or}"><b>${orn(r.n_or)}</b> <span class="tag">${esc(r.doc.numero)}</span>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}</div></div>`).join('') || `<p class="mut">Rien à exécuter.</p>`;
   $('#px').onclick = e => { const c = e.target.closest('[data-n]'); if (c) openOR(+c.dataset.n); };
@@ -209,13 +209,41 @@ async function lookup(code){
   const {data:ent, error} = await sb.from('t_or').select('n_or').eq('type','entree').eq('id_mat',code).limit(1);
   if (error) return toast(error.message, 1);
   if (!ent.length) return neuf(code);
-  const {data:open} = await sb.from('v_or_en_cours').select('n_or,date_op,matcop,societe_id').eq('id_mat',code).order('date_op',{ascending:false});
+  const {data:open} = await sb.from('v_or_en_cours').select('n_or,date_op,matcop,societe_id,contact_id').eq('id_mat',code).order('date_op',{ascending:false});
   if (open && open.length) return choix(code, open);
   histo(code, true);
 }
 
+async function panier(en){
+  const fo = soc.filter(x => (x.typologie || []).includes('fournisseur'));
+  view(bar(`Composants · ${orn(en.n_or)}`, () => openOR(en.n_or)) + `<div class="pad"><div class="card"><label for="md">Source</label><select id="md">${en.id_mat ? `<option value="mat">Même matériel (${esc(en.id_mat)})</option>` : ''}<option value="or">Un autre OR</option><option value="fr">Un fournisseur</option><option value="all">Tous les achats</option></select><div id="ex"></div><button class="btn" id="rf" style="margin-top:8px">Afficher</button></div><div id="ls"></div><button class="btn big" id="ad" hidden>Ajouter à ${orn(en.n_or)}</button></div>`);
+  const ex = () => { const m = $('#md').value; $('#ex').innerHTML = m === 'or' ? `<label for="no">N° d’OR</label><input id="no" type="number" inputmode="numeric">` : m === 'fr' ? `<label for="sf">Fournisseur</label><select id="sf">${fo.map(x => `<option value="${x.id}">${esc(x.nom)}</option>`).join('')}</select>` : m === 'all' ? `<label for="tq">Filtrer par texte</label><input id="tq" placeholder="ex. transistor">` : ''; };
+  $('#md').onchange = ex; ex();
+  let data = [];
+  const sup = x => x.doc ? x.doc.societe_id : x.societe_id;
+  $('#rf').onclick = async () => {
+    const m = $('#md').value;
+    let q = sb.from('t_or').select('id,n_or,matcop,qte,unite,pu_achat,societe_id,contact_id,date_op,doc:t_doc(numero,societe_id,contact_id)').eq('type', 'ha').order('date_op', {ascending:false}).limit(400);
+    if (m === 'mat'){ const {data:e} = await sb.from('t_or').select('n_or').eq('type', 'entree').eq('id_mat', en.id_mat); q = q.in('n_or', (e || []).map(z => z.n_or)); }
+    if (m === 'or') q = q.eq('n_or', +($('#no').value || 0));
+    const {data:r, error} = await q; if (error) return toast(error.message, 1);
+    const t = m === 'all' && $('#tq').value.trim().toLowerCase();
+    data = (r || []).filter(x => (m !== 'fr' || sup(x) === $('#sf').value) && (!t || (x.matcop || '').toLowerCase().includes(t)));
+    $('#ls').innerHTML = data.map((x, i) => `<label class="card chk"><input type="checkbox" value="${i}"><div><b>${esc(x.matcop || '')}</b><div class="mut">${x.qte} ${UNITES[x.unite] || ''} · ${orn(x.n_or)}${sup(x) ? ` · ${esc(socName(sup(x)))}` : ''}${x.pu_achat != null ? ` · ${x.pu_achat} € HT (ancien prix)` : ''}</div></div></label>`).join('') || `<p class="mut">Aucun achat trouvé.</p>`;
+    $('#ad').hidden = !data.length;
+  };
+  $('#ad').onclick = async () => {
+    const sel = [...document.querySelectorAll('#ls input:checked')].map(i => data[+i.value]);
+    if (!sel.length) return toast(`Cochez au moins une ligne`, 1);
+    const rows = sel.map(x => ({type:'ha', entree_id:en.id, matcop:x.matcop, qte:x.qte, unite:x.unite, pu_achat:x.pu_achat, societe_id:sup(x), contact_id:x.doc ? x.doc.contact_id : x.contact_id}));
+    const {error} = await sb.from('t_or').insert(rows);
+    if (error) return toast(error.message, 1);
+    toast(`${rows.length} ligne(s) ajoutée(s)`); openOR(en.n_or);
+  };
+}
+
 function choix(code, open){
-  view(bar(code, home) + `<div class="pad">${open.map(o => `<div class="card"><b>${orn(o.n_or)}</b> <span class="tag">${esc(socName(o.societe_id))}</span><div>${esc(o.matcop || '')}</div><div class="mut">${fmt(o.date_op)}</div><button class="btn big" data-n="${o.n_or}">Reprendre ${orn(o.n_or)}</button></div>`).join('')}
+  view(bar(code, home) + `<div class="pad">${open.map(o => `<div class="card"><b>${orn(o.n_or)}</b> <span class="tag">${esc(socName(o.societe_id))}</span>${o.contact_id ? ` <b>${esc(ctName(o.contact_id))}</b>` : ''}<div>${esc(o.matcop || '')}</div><div class="mut">${fmt(o.date_op)}</div><button class="btn big" data-n="${o.n_or}">Reprendre ${orn(o.n_or)}</button></div>`).join('')}
     <button class="btn sec big" id="hs">Historique du matériel</button><button class="btn sec big" id="nv">Nouvelle entrée pour ce matériel</button></div>`);
   document.querySelectorAll('button[data-n]').forEach(b => b.onclick = () => openOR(+b.dataset.n));
   $('#hs').onclick = () => histo(code);
@@ -248,9 +276,11 @@ async function openOR(n){
   const m = await urls(rows);
   view(bar(orn(n), home) + `<div class="pad"><div class="card"><b>${esc(socName(en.societe_id))}</b>${en.contact_id ? ` · ${esc(ctName(en.contact_id))}` : ''}<div>${esc(en.matcop||'')}</div><div class="mut">${fmt(en.date_op)}${en.id_mat?` · ${esc(en.id_mat)}`:''} · ${esc(en.qui||'')}</div>${(en.besoins||[]).map(b => ` <span class="tag">${BESOINS[b]||b}</span>`).join('')}${thumbs(en,m)}<button class="btn sec ed" id="edE">Modifier</button></div>
     <button class="btn big" id="add">Ajouter une ligne</button>
+    <button class="btn sec big" id="pn">Ajouter des composants déjà achetés</button>
     ${en.id_mat?`<button class="btn sec big" id="his">Historique du matériel</button>`:''}
     <h2>Lignes</h2>${rows.filter(r => r !== en).map(r => line(r,m)).join('') || `<p class="mut">Aucune ligne.</p>`}</div>`);
   $('#add').onclick = () => addLine(en);
+  $('#pn').onclick = () => panier(en);
   $('#edE').onclick = () => neuf(en.id_mat || '', en);
   document.querySelectorAll('button.ed[data-id]').forEach(b => b.onclick = () => addLine(en, rows.find(x => x.id === b.dataset.id)));
   document.querySelectorAll('select.et').forEach(sel => sel.onchange = async () => {
@@ -445,8 +475,9 @@ async function affecter(sel){
   };
 }
 async function devisList(){
-  view(bar(`Devis`, home) + `<div class="pad"><button class="btn big" id="nd">＋ Nouveau devis</button><div id="dl" class="mut">Chargement…</div></div>`);
+  view(bar(`Devis`, home) + `<div class="pad"><button class="btn big" id="nd">＋ Devis pour un OR en cours</button><button class="btn sec big" id="nl2">＋ Devis sans OR (théorique)</button><div id="dl" class="mut">Chargement…</div></div>`);
   $('#nd').onclick = nouveauDevis;
+  $('#nl2').onclick = devisLibre;
   const [a, b] = await Promise.all([
     sb.from('t_doc').select('id,numero,societe_id,date_doc,clos').eq('type', 'devis').order('date_doc', {ascending:false}),
     sb.from('v_lignes_gerant').select('doc_id,totaligne').eq('type', 'devis')]);
@@ -456,10 +487,20 @@ async function devisList(){
   $('#dl').innerHTML = a.data.map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)} · ${(tot[d.id] || 0).toFixed(2)} € HT</div></div>`).join('') || `<p class="mut">Aucun devis.</p>`;
   $('#dl').onclick = e => { const c = e.target.closest('[data-d]'); if (c) openDoc(c.dataset.d); };
 }
+function devisLibre(){
+  view(bar(`Devis sans OR`, devisList) + `<div class="pad"><div class="card"><label>Client</label>${cb('lS', `Rechercher ou créer…`)}<label>Contact</label>${cb('lC', `Rechercher ou créer…`)}<button class="btn big" id="mk">Créer le devis</button></div></div>`);
+  const P = pair('#lS', '#lC', 'client');
+  $('#mk').onclick = async () => {
+    const sid = P.s.get(); if (!sid) return toast(`Choisissez ou créez le client`, 1);
+    const {data, error} = await sb.from('t_doc').insert({type:'devis', societe_id:sid, contact_id:P.c.get() || null}).select('id,numero').single();
+    if (error) return toast(error.message, 1);
+    toast(`${data.numero} créé`); openDoc(data.id);
+  };
+}
 async function nouveauDevis(){
   const {data, error} = await sb.from('v_or_en_cours').select('id,n_or,date_op,matcop,societe_id,contact_id').order('date_op', {ascending:false});
   if (error) return toast(error.message, 1);
-  view(bar(`Devis pour quel OR ?`, devisList) + `<div class="pad" id="ol">${data.map((o, i) => `<div class="card item" data-i="${i}"><b>${orn(o.n_or)}</b> <span class="tag">${esc(socName(o.societe_id))}</span><div>${esc(o.matcop || '')}</div><div class="mut">${fmt(o.date_op)}</div></div>`).join('') || `<p class="mut">Aucun OR en cours.</p>`}</div>`);
+  view(bar(`Devis pour quel OR ?`, devisList) + `<div class="pad" id="ol">${data.map((o, i) => `<div class="card item" data-i="${i}"><b>${orn(o.n_or)}</b> <span class="tag">${esc(socName(o.societe_id))}</span>${o.contact_id ? ` <b>${esc(ctName(o.contact_id))}</b>` : ''}<div>${esc(o.matcop || '')}</div><div class="mut">${fmt(o.date_op)}</div></div>`).join('') || `<p class="mut">Aucun OR en cours.</p>`}</div>`);
   $('#ol').onclick = e => { const c = e.target.closest('[data-i]'); if (c) genDevis(data[+c.dataset.i]); };
 }
 async function genDevis(en){
@@ -507,6 +548,7 @@ function ligneDevis(d, r, p, eid){
     } catch(err){ toast(err.message || String(err), 1); b.disabled = false; }
   };
 }
+const ttl = n => n === 'null' ? `<h2>Sans OR (devis théorique)</h2>` : `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>`;
 function buildTable(d, rows){
   const prix = d.type !== 'dp', eur = n => n == null ? '' : Number(n).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
   const head = ['Désignation', 'Qté', 'Unité'].concat(prix ? ['PU HT', 'Total HT'] : []);
@@ -532,7 +574,7 @@ async function openDoc(id){
   if (error) return toast(error.message, 1);
   const lines = ls || [], byOr = {}; lines.forEach(r => (byOr[r.n_or] = byOr[r.n_or] || []).push(r));
   if (d.type === 'devis' && me.role !== 'gerant'){
-    view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>Devis</b> <span class="tag">${d.accepte_le ? `accepté le ${fmt(d.accepte_le)}` : `en attente d’accord du client`}</span><div class="mut">${fmt(d.date_doc)} · ${esc(socName(d.societe_id))}</div></div>${Object.keys(byOr).map(n => `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>` + byOr[n].map(r => `<div class="card"><div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select></div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}</div>`);
+    view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>Devis</b> <span class="tag">${d.accepte_le ? `accepté le ${fmt(d.accepte_le)}` : `en attente d’accord du client`}</span><div class="mut">${fmt(d.date_doc)} · ${esc(socName(d.societe_id))}</div></div>${Object.keys(byOr).map(n => `${ttl(n)}` + byOr[n].map(r => `<div class="card"><div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}</div><select class="et" data-id="${r.id}" aria-label="État">${etOpts(r.etat)}</select></div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}</div>`);
     document.querySelectorAll('.go').forEach(b => b.onclick = () => openOR(+b.dataset.n));
     document.querySelectorAll('select.et').forEach(sel => sel.onchange = async () => { const {error} = await sb.from('t_or').update({etat: sel.value || null}).eq('id', sel.dataset.id); toast(error ? error.message : `État mis à jour`, !!error); });
     return;
@@ -549,8 +591,9 @@ async function openDoc(id){
     <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Notes</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
     <button class="btn" id="sv" style="margin-top:8px">Enregistrer l’en-tête</button></div>
     ${d.type !== 'devis' ? `<p><b>Total achat HT :</b> ${tot.toFixed(2)} € <span class="mut">(lignes sans prix exclues)</span></p>` : `<p><b>Total devis HT :</b> ${Object.values(pv).reduce((a, r) => a + (r.totaligne || 0), 0).toFixed(2)} €</p>`}
-    ${Object.keys(byOr).map(n => `<h2>${orn(+n)} <button class="btn sec ed go" data-n="${n}">Ouvrir</button></h2>` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}${pv[r.id] ? ` · PU ${pv[r.id].pu ?? '—'} × ${pv[r.id].coeff} × ${pv[r.id].remise} = <b>${pv[r.id].totaligne ?? '—'} €</b>${pv[r.id].obs ? `<br><i>${esc(pv[r.id].obs)}</i>` : ''}` : ''}</div>${d.clos ? '' : `${d.type === 'devis' ? `<button class="btn sec ed ch" data-id="${r.id}">Chiffrer</button>` : ''}<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
+    ${Object.keys(byOr).map(n => `${ttl(n)}` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}${pv[r.id] ? ` · PU ${pv[r.id].pu ?? '—'} × ${pv[r.id].coeff} × ${pv[r.id].remise} = <b>${pv[r.id].totaligne ?? '—'} €</b>${pv[r.id].obs ? `<br><i>${esc(pv[r.id].obs)}</i>` : ''}` : ''}</div>${d.clos ? '' : `${d.type === 'devis' ? `<button class="btn sec ed ch" data-id="${r.id}">Chiffrer</button>` : ''}<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
     ${d.type === 'devis' && !d.clos ? `<button class="btn sec big" id="nl">＋ Ligne libre</button>` : ''}
+    ${d.type === 'devis' && lines.some(r => !r.entree_id) ? `<button class="btn big" id="mo">Créer l’OR pour ce devis</button>` : ''}
     <button class="btn sec big" id="cp">📋 Copier le tableau</button>
     <button class="btn ${d.clos ? 'sec ' : ''}big" id="cl">${d.clos ? `Rouvrir` : `Clore le document`}</button></div>`);
   const P = pair('#dS', '#dC', d.type === 'devis' ? 'client' : 'fournisseur'); P.s.set(d.societe_id); P.c.set(d.contact_id);
@@ -559,7 +602,15 @@ async function openDoc(id){
     toast(error ? error.message : `En-tête enregistré`, !!error);
   };
   document.querySelectorAll('.ch').forEach(b => b.onclick = () => ligneDevis(d, lines.find(x => x.id === b.dataset.id), pv[b.dataset.id]));
-  if ($('#nl')) $('#nl').onclick = () => lines.length ? ligneDevis(d, null, null, lines[0].entree_id) : toast(`Créez le devis depuis un OR : menu Devis, Nouveau devis.`, 1);
+  if ($('#nl')) $('#nl').onclick = () => ligneDevis(d, null, null, lines.length ? lines[0].entree_id : null);
+  if ($('#mo')) $('#mo').onclick = async () => {
+    const m = prompt(`Matériel ou objet de l’OR ?`, ''); if (m === null) return;
+    const {data:e, error} = await sb.from('t_or').insert({type:'entree', societe_id:d.societe_id, contact_id:d.contact_id, matcop:m.trim() || null}).select('id,n_or').single();
+    if (error) return toast(error.message, 1);
+    const {error:e2} = await sb.from('t_or').update({entree_id:e.id}).eq('doc_id', id).is('entree_id', null);
+    if (e2) return toast(e2.message, 1);
+    toast(`${orn(e.n_or)} créé`); openOR(e.n_or);
+  };
   if ($('#ac')) $('#ac').onclick = async () => { const {error} = await sb.from('t_doc').update({accepte_le: d.accepte_le ? null : new Date().toISOString()}).eq('id', id); if (error) return toast(error.message, 1); openDoc(id); };
   $('#cp').onclick = () => copyTable(d, rows);
   $('#cl').onclick = async () => { const {error} = await sb.from('t_doc').update({clos:!d.clos}).eq('id', id); if (error) return toast(error.message, 1); openDoc(id); };
@@ -610,17 +661,22 @@ function combo(box, o){
     if (!el.dataset.new) return put(o.items().find(i => i.id === el.dataset.id));
     try { put(await o.make(inp.value.trim())); } catch (err){ toast(err.message || String(err), 1); }
   };
-  return { val: () => val, set: id => put(o.items().find(i => i.id === id)),
+  return { val: () => val, set: id => put((o.find || (k => o.items().find(i => i.id === k)))(id)),
            get: () => { if (!val){ const q = nz(inp.value.trim()), it = q && o.items().find(i => nz(i.label) === q); if (it) put(it); } return val; } };
 }
 function pair(idS, idC, kind){
   let sp, cp;
   sp = combo($(idS), {
-    items: () => soc.map(s => ({id:s.id, label:s.nom})),
-    make: async t => { const {data, error} = await sb.from('t_societe').insert({nom:t, typologie:[kind]}).select('id,nom,typologie').single(); if (error) throw error; soc.push(data); return {id:data.id, label:data.nom}; },
+    items: () => soc.filter(s => !(s.typologie || []).length || s.typologie.includes(kind)).map(s => ({id:s.id, label:s.nom})),
+    find: k => { const x = soc.find(y => y.id === k); return x && {id:x.id, label:x.nom}; },
+    make: async t => {
+      const ex = soc.find(y => y.nom.trim().toLowerCase() === t.toLowerCase());   // existe déjà sous un autre type : on lui ajoute ce type
+      if (ex){ const ty = [...new Set([...(ex.typologie || []), kind])]; const {error} = await sb.from('t_societe').update({typologie:ty}).eq('id', ex.id); if (error) throw error; ex.typologie = ty; return {id:ex.id, label:ex.nom}; }
+      const {data, error} = await sb.from('t_societe').insert({nom:t, typologie:[kind]}).select('id,nom,typologie').single(); if (error) throw error; soc.push(data); return {id:data.id, label:data.nom}; },
     change: id => { const c = ctc.find(x => x.id === cp.val()); if (c && id && c.societe_id !== id) cp.set(''); }
   });
   cp = combo($(idC), {
+    find: k => { const c = ctc.find(y => y.id === k); return c && {id:c.id, label:`${c.prenom || ''} ${c.nom}`.trim()}; },
     items: () => { const sid = sp.val(); return ctc.filter(c => !sid || c.societe_id === sid).map(c => ({id:c.id, label:`${c.prenom || ''} ${c.nom}`.trim(), sub: sid ? '' : socName(c.societe_id)})); },
     make: async t => { const [a, ...b] = t.split(/\s+/), row = b.length ? {prenom:a, nom:b.join(' ')} : {nom:a}; row.societe_id = sp.val() || null;
       const {data, error} = await sb.from('t_contact').insert(row).select('id,prenom,nom,societe_id').single(); if (error) throw error; ctc.push(data); return {id:data.id, label:`${data.prenom || ''} ${data.nom}`.trim()}; },
