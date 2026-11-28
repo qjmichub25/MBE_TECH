@@ -584,15 +584,17 @@ async function openDoc(id){
     return;
   }
   const tot = lines.reduce((a, r) => a + (r.pu_achat != null ? r.qte * r.pu_achat : 0), 0);
-  let pv = {}, rows = lines.map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu_achat, tot:r.pu_achat != null ? r.qte * r.pu_achat : null}));
+  let pv = {}, sig = null, rows = lines.map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu_achat, tot:r.pu_achat != null ? r.qte * r.pu_achat : null}));
   if (d.type === 'devis'){
     const {data:dl} = await sb.from('v_lignes_gerant').select('id,matcop,qte,unite,pu,coeff,remise,totaligne').eq('doc_id', id).order('n_or');
     rows = (dl || []).map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu != null ? Math.round(r.pu * r.coeff * r.remise * 100) / 100 : null, tot:r.totaligne}));
     pv = Object.fromEntries((dl || []).map(r => [r.id, r]));
+    const {data:sgs} = await sb.from('t_signature').select('nom,signe_le,signature').eq('doc_id', id).order('signe_le', {ascending:false}).limit(1);
+    sig = sgs && sgs[0];
   }
-  view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `🔒 clos` : `🔓 ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>${d.type === 'devis' ? `<div>${d.accepte_le ? `<span class="tag">✅ accepté le ${fmt(d.accepte_le)}</span> ` : ''}<button class="btn sec ed" id="ac">${d.accepte_le ? `Retirer l’accord` : `Marquer accepté par le client`}</button></div>` : ''}
+  view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `🔒 clos` : `🔓 ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>${d.type === 'devis' ? `<div>${d.accepte_le ? `<span class="tag">✅ accepté le ${fmt(d.accepte_le)}</span> ` : ''}<button class="btn sec ed" id="ac">${d.accepte_le ? `Retirer l’accord` : `Marquer accepté par le client`}</button></div><div style="margin-top:8px"><button class="btn sec ed" id="lk">🔗 Lien de signature</button>${sig ? ` <span class="tag">✍️ signé par ${esc(sig.nom)} le ${fmt(sig.signe_le)}</span>` : ''}</div><div id="lkr"></div>${sig ? `<img src="${esc(sig.signature)}" alt="Signature" style="max-width:240px;background:#fff;border:1px solid var(--bd);border-radius:8px;margin-top:6px">` : ''}` : ''}
     <label>Société</label>${cb('dS', `Rechercher ou créer…`)}<label>Contact</label>${cb('dC', `Rechercher ou créer…`)}
-    <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Objet / notes (la première ligne apparaît dans les listes)</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
+    <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Objet / notes (la première ligne apparaît dans les listes et sur le lien de signature)</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
     <button class="btn" id="sv" style="margin-top:8px">Enregistrer l’en-tête</button></div>
     ${d.type !== 'devis' ? `<p><b>Total achat HT :</b> ${tot.toFixed(2)} € <span class="mut">(lignes sans prix exclues)</span></p>` : `<p><b>Total devis HT :</b> ${Object.values(pv).reduce((a, r) => a + (r.totaligne || 0), 0).toFixed(2)} €</p>`}
     ${Object.keys(byOr).map(n => `${ttl(n)}` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}${pv[r.id] ? ` · PU ${pv[r.id].pu ?? '—'} × ${pv[r.id].coeff} × ${pv[r.id].remise} = <b>${pv[r.id].totaligne ?? '—'} €</b>${pv[r.id].obs ? `<br><i>${esc(pv[r.id].obs)}</i>` : ''}` : ''}</div>${d.clos ? '' : `${d.type === 'devis' ? `<button class="btn sec ed ch" data-id="${r.id}">Chiffrer</button>` : ''}<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
@@ -607,6 +609,14 @@ async function openDoc(id){
   };
   document.querySelectorAll('.ch').forEach(b => b.onclick = () => ligneDevis(d, lines.find(x => x.id === b.dataset.id), pv[b.dataset.id]));
   if ($('#nl')) $('#nl').onclick = () => ligneDevis(d, null, null, lines.length ? lines[0].entree_id : null);
+  if ($('#lk')) $('#lk').onclick = async () => {
+    if (!rows.reduce((a, r) => a + (r.tot || 0), 0) && !confirm(`Ce devis n’a aucun montant. Créer le lien quand même ?`)) return;
+    const {data, error} = await sb.rpc('creer_lien_signature', {p_doc:id, p_jours:14});
+    if (error) return toast(error.message, 1);
+    const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}signer.html#${data}`;
+    $('#lkr').innerHTML = `<div class="card"><div class="mut">Valable 14 jours, usage unique. Copiez-le dans votre message au client : il ne sera plus affiché ensuite.</div><input id="lku" readonly value="${esc(url)}"><button class="btn" id="lkc" style="margin-top:6px">Copier le lien</button></div>`;
+    $('#lkc').onclick = () => navigator.clipboard.writeText(url).then(() => toast(`Lien copié`)).catch(() => { $('#lku').select(); toast(`Sélectionnez puis copiez le lien`, 1); });
+  };
   if ($('#mo')) $('#mo').onclick = async () => {
     const m = prompt(`Matériel ou objet de l’OR ?`, ''); if (m === null) return;
     const {data:e, error} = await sb.from('t_or').insert({type:'entree', societe_id:d.societe_id, contact_id:d.contact_id, matcop:m.trim() || null}).select('id,n_or').single();
