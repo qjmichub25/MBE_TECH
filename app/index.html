@@ -124,7 +124,7 @@ async function home(){
      ${me.role === 'gerant' ? `<button class="btn sec big" id="dv">Devis</button>` : ''}
      <button class="btn sec big" id="scs">Sociétés et contacts</button>
      <button class="btn sec big" id="trb">Trombinoscope</button>
-     <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div><h2>Documents ouverts</h2><div id="docs" class="mut"></div><h2>Prestations à exécuter</h2><div id="px" class="mut"></div></div>`);
+     <h2>OR en cours</h2><div id="list" class="mut">Chargement…</div><h2>🔓 Documents ouverts</h2><div id="docs" class="mut"></div><h2>Prestations à exécuter</h2><div id="px" class="mut"></div></div>`);
   $('#out').onclick = () => sb.auth.signOut();
   $('#scan').onclick = scan;
   $('#neu').onclick = () => neuf('');
@@ -138,9 +138,9 @@ async function home(){
   $('#list').className = '';
   $('#list').innerHTML = data.length ? data.map(r => `<div class="card item" data-n="${r.n_or}"><b>${orn(r.n_or)}</b> <span class="tag">${esc(socName(r.societe_id))}</span>${r.contact_id ? ` <b>${esc(ctName(r.contact_id))}</b>` : ''}<div>${esc(r.matcop||'')}</div><div class="mut">${fmt(r.date_op)}${r.id_mat?` · ${esc(r.id_mat)}`:''}</div></div>`).join('') : `<p class="mut">Aucun OR en cours.</p>`;
   $('#list').onclick = e => { const c = e.target.closest('[data-n]'); if (c) openOR(+c.dataset.n); };
-  const {data:od} = await sb.from('t_doc').select('id,numero,societe_id,date_doc').eq('clos',false).order('date_doc',{ascending:false}).limit(10);
+  const {data:od} = await sb.from('t_doc').select('id,numero,societe_id,contact_id,notes,date_doc').eq('clos',false).order('date_doc',{ascending:false}).limit(10);
   $('#docs').className = '';
-  $('#docs').innerHTML = (od||[]).map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span> <span class="mut">${fmt(d.date_doc)}</span></div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`;
+  $('#docs').innerHTML = (od||[]).map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span>${d.contact_id ? ` <b>${esc(ctName(d.contact_id))}</b>` : ''} <span class="mut">${fmt(d.date_doc)}</span>${d.notes ? `<div>${esc(String(d.notes).split('\n')[0].slice(0, 70))}</div>` : ''}</div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`;
   $('#docs').onclick = e => { const c = e.target.closest('[data-d]'); if (c) openDoc(c.dataset.d); };
   const {data:px} = await sb.from('t_or').select('id,n_or,matcop,qte,unite,etat,doc:t_doc(numero,accepte_le)').eq('type', 'devis').order('n_or');
   const todo = (px || []).filter(r => r.doc && r.doc.accepte_le && r.etat !== 'fait' && r.n_or != null);
@@ -450,10 +450,10 @@ async function aCommander(){
 async function affecter(sel){
   const type = sel[0].type, same = k => sel.every(r => r[k] === sel[0][k]);
   const soc0 = same('societe_id') ? sel[0].societe_id : null, ct0 = soc0 && same('contact_id') ? sel[0].contact_id : null;
-  const {data:docs, error} = await sb.from('t_doc').select('id,numero,societe_id,date_doc').eq('type', type).eq('clos', false).order('date_doc', {ascending:false});
+  const {data:docs, error} = await sb.from('t_doc').select('id,numero,societe_id,contact_id,notes,date_doc').eq('type', type).eq('clos', false).order('date_doc', {ascending:false});
   if (error) return toast(error.message, 1);
   docs.sort((a, b) => (b.societe_id === soc0) - (a.societe_id === soc0));
-  view(bar(`Affecter ${sel.length} ligne(s)`, aCommander) + `<div class="pad"><h2>Document ouvert</h2><div id="od">${docs.map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span><div class="mut">${fmt(d.date_doc)}</div></div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`}</div>
+  view(bar(`Affecter ${sel.length} ligne(s)`, aCommander) + `<div class="pad"><h2>Document ouvert</h2><div id="od">${docs.map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span>${d.contact_id ? ` <b>${esc(ctName(d.contact_id))}</b>` : ''}${d.notes ? `<div>${esc(String(d.notes).split('\n')[0].slice(0, 70))}</div>` : ''}<div class="mut">${fmt(d.date_doc)}</div></div>`).join('') || `<p class="mut">Aucun document ouvert.</p>`}</div>
     <h2>Nouveau document</h2><div class="card"><label>Société</label>${cb('nS', `Rechercher ou créer…`)}<label>Contact</label>${cb('nC', `Rechercher ou créer…`)}<button class="btn big" id="nw">Créer et affecter</button></div></div>`);
   const P = pair('#nS', '#nC', type === 'devis' ? 'client' : 'fournisseur'); P.s.set(soc0); P.c.set(ct0);
   const go = async id => {
@@ -479,20 +479,24 @@ async function devisList(){
   $('#nd').onclick = nouveauDevis;
   $('#nl2').onclick = devisLibre;
   const [a, b] = await Promise.all([
-    sb.from('t_doc').select('id,numero,societe_id,date_doc,clos').eq('type', 'devis').order('date_doc', {ascending:false}),
-    sb.from('v_lignes_gerant').select('doc_id,totaligne').eq('type', 'devis')]);
+    sb.from('t_doc').select('id,numero,societe_id,contact_id,notes,date_doc,clos').eq('type', 'devis').order('date_doc', {ascending:false}),
+    sb.from('v_lignes_gerant').select('doc_id,n_or,totaligne').eq('type', 'devis')]);
   if (a.error) return toast(a.error.message, 1);
   const tot = {}; (b.data || []).forEach(r => { if (r.doc_id) tot[r.doc_id] = (tot[r.doc_id] || 0) + (r.totaligne || 0); });
+  const ors = {}; (b.data || []).forEach(r => { if (r.doc_id) (ors[r.doc_id] = ors[r.doc_id] || new Set()).add(r.n_or); });
+  const nums = [...new Set((b.data || []).map(r => r.n_or).filter(n => n != null))], mat = {};
+  if (nums.length){ const {data:en} = await sb.from('t_or').select('n_or,matcop').eq('type', 'entree').in('n_or', nums); (en || []).forEach(x => { mat[x.n_or] = x.matcop; }); }
+  const orTxt = id => [...(ors[id] || [])].map(n => n == null ? `sans OR` : `${orn(n)}${mat[n] ? ' · ' + mat[n] : ''}`).join(' ; ');
   $('#dl').className = '';
-  $('#dl').innerHTML = a.data.map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)} · ${(tot[d.id] || 0).toFixed(2)} € HT</div></div>`).join('') || `<p class="mut">Aucun devis.</p>`;
+  $('#dl').innerHTML = a.data.map(d => `<div class="card item" data-d="${d.id}"><b>${d.numero}</b> <span class="tag">${esc(socName(d.societe_id))}</span>${d.contact_id ? ` <b>${esc(ctName(d.contact_id))}</b>` : ''} <span class="tag">${d.clos ? `🔒 clos` : `🔓 ouvert`}</span>${d.notes ? `<div>${esc(String(d.notes).split('\n')[0].slice(0, 70))}</div>` : ''}<div class="mut">${esc(orTxt(d.id) || 'aucune ligne')}</div><div class="mut">${fmt(d.date_doc)} · ${(tot[d.id] || 0).toFixed(2)} € HT</div></div>`).join('') || `<p class="mut">Aucun devis.</p>`;
   $('#dl').onclick = e => { const c = e.target.closest('[data-d]'); if (c) openDoc(c.dataset.d); };
 }
 function devisLibre(){
-  view(bar(`Devis sans OR`, devisList) + `<div class="pad"><div class="card"><label>Client</label>${cb('lS', `Rechercher ou créer…`)}<label>Contact</label>${cb('lC', `Rechercher ou créer…`)}<button class="btn big" id="mk">Créer le devis</button></div></div>`);
+  view(bar(`Devis sans OR`, devisList) + `<div class="pad"><div class="card"><label>Client</label>${cb('lS', `Rechercher ou créer…`)}<label>Contact</label>${cb('lC', `Rechercher ou créer…`)}<label for="ob">Objet du devis</label><textarea id="ob" rows="2" placeholder="Ex. Remplacement de l’alimentation de l’ampli"></textarea><button class="btn big" id="mk">Créer le devis</button></div></div>`);
   const P = pair('#lS', '#lC', 'client');
   $('#mk').onclick = async () => {
     const sid = P.s.get(); if (!sid) return toast(`Choisissez ou créez le client`, 1);
-    const {data, error} = await sb.from('t_doc').insert({type:'devis', societe_id:sid, contact_id:P.c.get() || null}).select('id,numero').single();
+    const {data, error} = await sb.from('t_doc').insert({type:'devis', societe_id:sid, contact_id:P.c.get() || null, notes:$('#ob').value.trim() || null}).select('id,numero').single();
     if (error) return toast(error.message, 1);
     toast(`${data.numero} créé`); openDoc(data.id);
   };
@@ -586,16 +590,16 @@ async function openDoc(id){
     rows = (dl || []).map(r => ({txt:r.matcop, q:r.qte, u:r.unite, pu:r.pu != null ? Math.round(r.pu * r.coeff * r.remise * 100) / 100 : null, tot:r.totaligne}));
     pv = Object.fromEntries((dl || []).map(r => [r.id, r]));
   }
-  view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `clos` : `ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>${d.type === 'devis' ? `<div>${d.accepte_le ? `<span class="tag">✅ accepté le ${fmt(d.accepte_le)}</span> ` : ''}<button class="btn sec ed" id="ac">${d.accepte_le ? `Retirer l’accord` : `Marquer accepté par le client`}</button></div>` : ''}
+  view(bar(d.numero, home) + `<div class="pad"><div class="card"><b>${DOCT[d.type]}</b> <span class="tag">${d.clos ? `🔒 clos` : `🔓 ouvert`}</span><div class="mut">${fmt(d.date_doc)}</div>${d.type === 'devis' ? `<div>${d.accepte_le ? `<span class="tag">✅ accepté le ${fmt(d.accepte_le)}</span> ` : ''}<button class="btn sec ed" id="ac">${d.accepte_le ? `Retirer l’accord` : `Marquer accepté par le client`}</button></div>` : ''}
     <label>Société</label>${cb('dS', `Rechercher ou créer…`)}<label>Contact</label>${cb('dC', `Rechercher ou créer…`)}
-    <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Notes</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
+    <label for="rx">N° chez le fournisseur</label><input id="rx" value="${esc(d.ref_externe || '')}"><label for="nt">Objet / notes (la première ligne apparaît dans les listes)</label><textarea id="nt" rows="2">${esc(d.notes || '')}</textarea>
     <button class="btn" id="sv" style="margin-top:8px">Enregistrer l’en-tête</button></div>
     ${d.type !== 'devis' ? `<p><b>Total achat HT :</b> ${tot.toFixed(2)} € <span class="mut">(lignes sans prix exclues)</span></p>` : `<p><b>Total devis HT :</b> ${Object.values(pv).reduce((a, r) => a + (r.totaligne || 0), 0).toFixed(2)} €</p>`}
     ${Object.keys(byOr).map(n => `${ttl(n)}` + byOr[n].map(r => `<div class="card"><b>${TYPES[r.type]}</b>${r.etat ? ` <span class="tag">${ETATS[r.etat]}</span>` : ''}<div>${esc(r.matcop || '')}</div><div class="mut">${r.qte} ${UNITES[r.unite] || ''}${r.pu_achat != null ? ` · ${r.pu_achat} € HT` : ''}${pv[r.id] ? ` · PU ${pv[r.id].pu ?? '—'} × ${pv[r.id].coeff} × ${pv[r.id].remise} = <b>${pv[r.id].totaligne ?? '—'} €</b>${pv[r.id].obs ? `<br><i>${esc(pv[r.id].obs)}</i>` : ''}` : ''}</div>${d.clos ? '' : `${d.type === 'devis' ? `<button class="btn sec ed ch" data-id="${r.id}">Chiffrer</button>` : ''}<button class="btn sec ed rm" data-id="${r.id}">Retirer</button>`}</div>`).join('')).join('') || `<p class="mut">Aucune ligne.</p>`}
     ${d.type === 'devis' && !d.clos ? `<button class="btn sec big" id="nl">＋ Ligne libre</button>` : ''}
     ${d.type === 'devis' && lines.some(r => !r.entree_id) ? `<button class="btn big" id="mo">Créer l’OR pour ce devis</button>` : ''}
     <button class="btn sec big" id="cp">📋 Copier le tableau</button>
-    <button class="btn ${d.clos ? 'sec ' : ''}big" id="cl">${d.clos ? `Rouvrir` : `Clore le document`}</button></div>`);
+    <button class="btn ${d.clos ? 'sec ' : ''}big" id="cl">${d.clos ? `🔓 Rouvrir` : `🔒 Clore le document`}</button></div>`);
   const P = pair('#dS', '#dC', d.type === 'devis' ? 'client' : 'fournisseur'); P.s.set(d.societe_id); P.c.set(d.contact_id);
   $('#sv').onclick = async () => {
     const {error} = await sb.from('t_doc').update({societe_id:P.s.get() || null, contact_id:P.c.get() || null, ref_externe:$('#rx').value.trim() || null, notes:$('#nt').value.trim() || null}).eq('id', id);
