@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Devis à signer</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mut:#6a737d;--ac:#0b5fff;--bd:#dfe3e8;--ok:#1a7f37;--err:#c62828;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#14171a;--card:#1e2328;--tx:#e8eaed;--mut:#98a2ad;--ac:#5b9bff;--bd:#2f363d;--ok:#4cc26a;--err:#ff7b72}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+main{max-width:720px;margin:0 auto;padding:12px}
+h1{font-size:21px;margin:8px 0}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:12px 0}
+.mut{color:var(--mut);font-size:14px}
+.wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:7px 5px;border-bottom:1px solid var(--bd);text-align:right;vertical-align:top}
+th:first-child,td:first-child{text-align:left}
+tfoot td{font-weight:700;border-bottom:0}
+input[type=text]{width:100%;min-height:46px;padding:8px 10px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:16px system-ui,sans-serif}
+canvas{width:100%;height:170px;background:#fff;border:1px solid var(--bd);border-radius:10px;touch-action:none;display:block}
+button{min-height:50px;width:100%;margin-top:12px;padding:0 18px;border:0;border-radius:10px;background:var(--ac);color:#fff;font:600 17px system-ui,sans-serif;cursor:pointer}
+button.sec{width:auto;min-height:40px;margin:8px 0 0;background:transparent;color:var(--ac);border:1px solid var(--ac)}
+button:disabled{opacity:.5}
+label{display:block;font-size:14px;color:var(--mut);margin:12px 0 4px}
+label.chk{display:flex;gap:10px;align-items:flex-start;color:var(--tx);font-size:16px}
+label.chk input{width:22px;height:22px;flex:none;margin-top:2px}
+.err{color:var(--err)} .ok{color:var(--ok)}
+</style>
+</head>
+<body>
+<main id="app"><p class="mut">Chargement du devis…</p></main>
+<script>
+const SB_URL = 'https://ykydrnkytytiyhnnwnpp.supabase.co';
+const SB_KEY = 'sb_publishable_-Eokc1JGe4TKmXohcalAPw_wO9JdHZ6';   // clé publique
+// Texte des conditions de vente que le client doit accepter (à fournir par l’entreprise). Laisser vide pour ne rien afficher.
+const CONDITIONS = '';
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const eur = n => Number(n).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
+const UN = {unitaire:'unité', m:'m', km:'km', hr:'h'};
+const token = decodeURIComponent(location.hash.slice(1));
+const rpc = (fn, args) => fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {method:'POST', headers:{apikey:SB_KEY, 'Content-Type':'application/json'}, body:JSON.stringify(args)}).then(r => r.json());
+const say = (t, cls) => { $('#app').innerHTML = `<div class="card ${cls || ''}"><h1>${t}</h1></div>`; };
+
+(async () => {
+  if (!token) return say(`Lien incomplet`, 'err');
+  let d;
+  try { d = await rpc('devis_pour_signature', {p_token:token}); } catch(e){ return say(`Connexion impossible, réessayez plus tard`, 'err'); }
+  if (!d || d.etat === 'invalide') return say(`Ce lien n’est pas valide`, 'err');
+  if (d.etat === 'deja_signe') return say(`Ce devis a déjà été signé`, 'ok');
+  if (d.etat === 'expire') return say(`Ce lien a expiré : demandez-en un nouveau à votre interlocuteur`, 'err');
+  if (d.etat !== 'ok') return say(`Lien indisponible`, 'err');
+
+  $('#app').innerHTML = `<h1>Devis ${esc(d.numero)}</h1>
+    <div class="card"><b>${esc(d.societe || '')}</b>${d.contact ? ` · ${esc(d.contact)}` : ''}<div class="mut">${new Date(d.date).toLocaleDateString('fr-FR')}</div>${d.objet ? `<div style="margin-top:6px">${esc(d.objet)}</div>` : ''}</div>
+    <div class="card wrap"><table><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th></tr></thead><tbody>
+    ${d.lignes.map(l => `<tr><td>${esc(l.designation || '')}</td><td>${l.qte} ${UN[l.unite] || ''}</td><td>${l.pu == null ? '' : eur(l.pu)}</td><td>${l.total === 0 ? 'Offert' : l.total == null ? '' : eur(l.total)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="3">Total HT</td><td>${eur(d.total_ht)}</td></tr></tfoot></table></div>
+    ${CONDITIONS ? `<div class="card mut">${esc(CONDITIONS)}</div>` : ''}
+    <div class="card"><label for="nm">Votre nom</label><input id="nm" type="text" autocomplete="name">
+    <label>Signature</label><canvas id="sg"></canvas><button class="sec" id="cl" type="button">Effacer</button>
+    <label class="chk" style="margin-top:14px"><input id="ok" type="checkbox"> J’ai pris connaissance de ce devis et je l’accepte.</label>
+    <button id="go">Signer le devis</button><p id="er" class="err"></p></div>`;
+
+  const c = $('#sg'), x = c.getContext('2d'); let down = false, has = false;
+  c.width = 600; c.height = 240; x.lineWidth = 3; x.lineCap = 'round'; x.strokeStyle = '#000';
+  const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
+  c.onpointerdown = e => { down = has = true; c.setPointerCapture(e.pointerId); const [a, b] = pt(e); x.beginPath(); x.moveTo(a, b); };
+  c.onpointermove = e => { if (!down) return; const [a, b] = pt(e); x.lineTo(a, b); x.stroke(); };
+  c.onpointerup = c.onpointercancel = () => { down = false; };
+  $('#cl').onclick = () => { x.clearRect(0, 0, c.width, c.height); has = false; };
+
+  $('#go').onclick = async () => {
+    const er = $('#er'); er.textContent = '';
+    if ($('#nm').value.trim().length < 2) return er.textContent = 'Indiquez votre nom.';
+    if (!has) return er.textContent = 'Signez dans le cadre.';
+    if (!$('#ok').checked) return er.textContent = 'Cochez la case pour accepter le devis.';
+    $('#go').disabled = true;
+    const t = document.createElement('canvas'); t.width = c.width; t.height = c.height;
+    const y = t.getContext('2d'); y.fillStyle = '#fff'; y.fillRect(0, 0, t.width, t.height); y.drawImage(c, 0, 0);
+    try {
+      const r = await rpc('signer_devis', {p_token:token, p_nom:$('#nm').value.trim(), p_signature:t.toDataURL('image/png'), p_agent:navigator.userAgent});
+      if (r && r.ok) return say(`Merci, votre signature a bien été enregistrée`, 'ok');
+      er.textContent = (r && r.raison) || 'La signature n’a pas pu être enregistrée.';
+    } catch(e){ er.textContent = 'Connexion impossible, réessayez.'; }
+    $('#go').disabled = false;
+  };
+})();
+</script>
+</body>
+</html>
